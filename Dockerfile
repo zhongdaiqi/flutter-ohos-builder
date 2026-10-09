@@ -50,12 +50,16 @@ RUN mkdir -p /opt/ohos-sdk && cd /opt/ohos-sdk && \
     cat sdk.aa sdk.ab | tar -xzf - --strip-components=1 -C /opt/ohos-sdk && \
     rm -f sdk.aa sdk.ab
 
-# --- diagnostics: dump the real layout into the build log ---
-RUN echo "=== ls /opt/ohos-sdk ===" && ls -la /opt/ohos-sdk && \
-    echo "=== dirs up to depth 2 ===" && find /opt/ohos-sdk -maxdepth 2 -type d | sort && \
-    echo "=== ls /opt/ohos-sdk/sdk ===" && ls -la /opt/ohos-sdk/sdk && \
-    echo "=== ls /opt/ohos-sdk/hvigor ===" && ls -la /opt/ohos-sdk/hvigor && \
-    echo "=== command -v hvigorw ===" && command -v hvigorw
+# --- diagnostics: dump the real layout into the build log (never fails; if this
+# --- step itself failed it would hide the real cause, so every probe ends with `|| true`)
+RUN echo "=== ls -la /opt/ohos-sdk ===";  ls -la /opt/ohos-sdk || true; \
+    echo "=== dirs up to depth 2 ===";    find /opt/ohos-sdk -maxdepth 2 -type d 2>/dev/null | sort || true; \
+    echo "=== ls -la /opt/ohos-sdk/sdk ===";    ls -la /opt/ohos-sdk/sdk || true; \
+    echo "=== ls -la /opt/ohos-sdk/bin ===";    ls -la /opt/ohos-sdk/bin || true; \
+    echo "=== ls -la /opt/ohos-sdk/hvigor ==="; ls -la /opt/ohos-sdk/hvigor || true; \
+    echo "=== command -v hvigorw ===";    command -v hvigorw || true; \
+    echo "=== command -v ohpm ===";       command -v ohpm || true; \
+    true
 
 # --- hard assertions: if the layout is wrong the build fails HERE, so the CI
 # --- success/failure signal alone is enough to tell us whether the fix worked.
