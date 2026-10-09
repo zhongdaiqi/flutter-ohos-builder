@@ -57,17 +57,25 @@ RUN echo "=== ls -la /opt/ohos-sdk ===";  ls -la /opt/ohos-sdk || true; \
     echo "=== ls -la /opt/ohos-sdk/sdk ===";    ls -la /opt/ohos-sdk/sdk || true; \
     echo "=== ls -la /opt/ohos-sdk/bin ===";    ls -la /opt/ohos-sdk/bin || true; \
     echo "=== ls -la /opt/ohos-sdk/hvigor ==="; ls -la /opt/ohos-sdk/hvigor || true; \
+    echo "=== ls -la /opt/ohos-sdk/hvigor/bin ==="; ls -la /opt/ohos-sdk/hvigor/bin || true; \
+    echo "=== ls -la /opt/ohos-sdk/sdk/default ==="; ls -la /opt/ohos-sdk/sdk/default || true; \
+    echo "=== dirs in sdk (depth 3) ==="; find /opt/ohos-sdk/sdk -maxdepth 3 -type d 2>/dev/null | sort || true; \
     echo "=== command -v hvigorw ===";    command -v hvigorw || true; \
     echo "=== command -v ohpm ===";       command -v ohpm || true; \
     true
 
-# --- hard assertions: if the layout is wrong the build fails HERE, so the CI
-# --- success/failure signal alone is enough to tell us whether the fix worked.
-RUN test -f /opt/ohos-sdk/hvigor/hvigor-config.json5 \
-    && echo "ASSERT OK: /opt/ohos-sdk/hvigor/hvigor-config.json5 exists"
+# --- hard assertions --------------------------------------------------------
+# Layout verified from the CI diagnostics dump of 5.0.13.200:
+#   bin/{hvigorw,ohpm,codelinter,hstack}
+#   hvigor/{bin,hvigor,hvigor-ohos-plugin}
+#   ohpm/  sdk/default/  tool/node/  codelinter/  hstack/
+# NOTE: hvigor-config.json5 is NOT part of this package - it is generated inside
+# the *project* by `flutter create` (ohos/hvigor/hvigor-config.json5).
+RUN test -x /opt/ohos-sdk/bin/hvigorw && test -x /opt/ohos-sdk/bin/ohpm \
+    && echo "ASSERT OK: bin/hvigorw and bin/ohpm are present and executable"
 
-RUN test -d /opt/ohos-sdk/sdk && test -n "$(ls -A /opt/ohos-sdk/sdk)" \
-    && echo "ASSERT OK: /opt/ohos-sdk/sdk exists and is non-empty"
+RUN test -d /opt/ohos-sdk/sdk/default && test -n "$(ls -A /opt/ohos-sdk/sdk/default)" \
+    && echo "ASSERT OK: sdk/default exists and is non-empty"
 
 # Flutter OHOS fork (zhongdaiqi/flutter_flutter, synced from gitcode CPF-Flutter/flutter_flutter)
 # NOTE: must clone a TAG (not branch) - the flutter tool detects its version via git describe,
