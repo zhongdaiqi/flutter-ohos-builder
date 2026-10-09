@@ -120,7 +120,9 @@ APP_SCOPE_STRINGS="ohos/AppScope/resources/base/element/string.json"
 if [[ -n "${APP_NAME}" ]]; then
     echo "[2.2/4] Setting app name -> ${APP_NAME}"
     if [[ -f "${APP_SCOPE_STRINGS}" ]]; then
-        perl -0777 -i -pe "s/(\"value\"\s*:\s*\")[^\"]*(\")/\${1}${APP_NAME}\${2}/g" "${APP_SCOPE_STRINGS}"
+        # Anchor on the "app_name" entry instead of smashing every "value" in the file,
+        # in case AppScope ever carries more than one string resource.
+        perl -0777 -i -pe "s/(\"name\"\s*:\s*\"app_name\"[\s\S]*?\"value\"\s*:\s*\")[^\"]*(\")/\${1}${APP_NAME}\${2}/g" "${APP_SCOPE_STRINGS}"
     else
         echo "WARNING: ${APP_SCOPE_STRINGS} not found; app name left untouched."
     fi
