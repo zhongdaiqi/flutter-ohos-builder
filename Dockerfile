@@ -30,7 +30,9 @@ RUN curl -fsSL https://nodejs.org/dist/v18.20.1/node-v18.20.1-linux-x64.tar.xz \
 
 # HarmonyOS Command Line Tools (SDK embedded)
 # Source: ErBWs/ohos-sdk GitHub Releases — community mirror of official Huawei CLI tools
-ARG OHOS_SDK_VERSION=6.1.1.280
+# NOTE: SDK must match the flutter_ohos tag's era — 3.22.4-ohos-1.1.5 targets API 12 (5.0.x).
+# Newer SDK (6.x) breaks ArkTS compile (autoFillManager API shape changed).
+ARG OHOS_SDK_VERSION=5.0.13.200
 RUN mkdir -p /opt/ohos-sdk && cd /opt/ohos-sdk && \
     curl -fsSL -o sdk.aa \
       "https://github.com/ErBWs/ohos-sdk/releases/download/${OHOS_SDK_VERSION}/ohos-sdk-linux-amd64.tar.gz.aa" && \
