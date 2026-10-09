@@ -5,6 +5,7 @@ on:
     branches: [main, master]
   pull_request:
     branches: [main, master]
+  workflow_dispatch:
 
 jobs:
   validate:
@@ -15,7 +16,7 @@ jobs:
       - name: Validate action.yml syntax
         run: |
           python3 -c "
-          import yaml, sys
+          import yaml
           with open('action.yml') as f:
               data = yaml.safe_load(f)
           required = ['name', 'description', 'runs']
@@ -25,6 +26,8 @@ jobs:
           print('  name:', data['name'])
           print('  runs.using:', data['runs']['using'])
           print('  runs.image:', data['runs']['image'])
+          print('  flutter-version default:', data['inputs']['flutter-version']['default'])
+          print('  ohos-api default:', data['inputs']['ohos-api']['default'])
           "
 
       - name: Validate entrypoint.sh syntax
@@ -37,19 +40,30 @@ jobs:
           test -f Dockerfile && echo 'Dockerfile: exists'
           grep -c 'FROM ubuntu' Dockerfile > /dev/null && echo 'Dockerfile: has FROM'
           grep -c 'ENTRYPOINT' Dockerfile > /dev/null && echo 'Dockerfile: has ENTRYPOINT'
-          grep -c 'ErBWs/ohos-sdk' Dockerfile > /dev/null && echo 'Dockerfile: downloads OHOS SDK'
-          grep -c 'OHOS_SDK_VERSION' Dockerfile > /dev/null && echo 'Dockerfile: has SDK version arg'
+          grep -c 'command-line-tools-for-hmos' Dockerfile > /dev/null && echo 'Dockerfile: downloads HarmonyOS Command Line Tools'
+          grep -c 'clt-26.0.0.851' Dockerfile > /dev/null && echo 'Dockerfile: pinned to clt-26.0.0.851'
+          grep -c '3.41.10-ohos-1.0.1' Dockerfile > /dev/null && echo 'Dockerfile: pinned to flutter 3.41.10-ohos-1.0.1'
 
       - name: List all files
         run: find . -type f -not -path './.git/*' | sort
 
   docker-build:
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 90
     permissions:
       contents: write          # required to push the diagnostics branch
     steps:
       - uses: actions/checkout@v4
+
+      # The embedded CLT is ~2.3 GB compressed / ~6.8 GB extracted and the flutter
+      # clone is ~1 GB, so reclaim the preinstalled toolchains first.
+      - name: Free disk space
+        run: |
+          df -h /
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+                      /usr/local/share/boost /opt/hostedtoolcache/CodeQL || true
+          sudo docker image prune -af || true
+          df -h /
 
       # We deliberately do NOT let this step abort the job: the raw build log is
       # the only way to see what happened, since plain job logs are not readable
@@ -60,6 +74,53 @@ jobs:
         run: |
           set -o pipefail
           docker build -t flutter-ohos-builder:test --progress=plain . 2>&1 | tee build.log
+
+      # Runs the actual SDK <-> flutter pairing check inside the built image:
+      #   flutter create -> inspect generated ohos/build-profile.json5
+      #                  -> hvigorw --sync (SDK resolution)
+      #                  -> flutter build hap --debug (end to end)
+      # Every command is `|| true` on purpose so the diagnostics always get out.
+      - name: Probe SDK/flutter pairing inside image
+        id: probe
+        if: steps.build.outcome == 'success'
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          docker run --rm -i --entrypoint bash flutter-ohos-builder:test <<'EOS' 2>&1 | tee probe.log
+          set -x
+          df -h /
+          echo "===== SDK metadata (.data) ====="
+          cat /opt/ohos-sdk/sdk/default/sdk-pkg.json
+          echo "===== flutter --version ====="
+          flutter --version
+          echo "===== flutter doctor -v ====="
+          flutter doctor -v || true
+          echo "===== flutter create ====="
+          cd /tmp
+          flutter create --platforms=ohos --project-name probe /tmp/probe || true
+          echo "===== generated ohos/build-profile.json5 ====="
+          cat /tmp/probe/ohos/build-profile.json5 || true
+          echo "===== generated ohos/entry/build-profile.json5 ====="
+          cat /tmp/probe/ohos/entry/build-profile.json5 || true
+          echo "===== generated ohos/oh-package.json5 ====="
+          cat /tmp/probe/ohos/oh-package.json5 || true
+          echo "===== generated ohos/hvigor/hvigor-config.json5 ====="
+          cat /tmp/probe/ohos/hvigor/hvigor-config.json5 || true
+          echo "===== ls generated ohos ====="
+          ls -la /tmp/probe/ohos || true
+          echo "===== hvigorw -v (in project) ====="
+          cd /tmp/probe/ohos && hvigorw -v --no-daemon || true
+          echo "===== hvigorw --sync --no-daemon ====="
+          cd /tmp/probe/ohos && hvigorw --sync --no-daemon || true
+          echo "===== flutter pub get ====="
+          cd /tmp/probe && flutter pub get || true
+          echo "===== flutter build hap --debug ====="
+          cd /tmp/probe && flutter build hap --debug || true
+          echo "===== artifacts ====="
+          find /tmp/probe/ohos -name '*.hap' -o -name '*.app' 2>/dev/null || true
+          echo "===== df -h / ====="
+          df -h /
+          EOS
 
       - name: Collect diagnostics
         if: always()
@@ -72,16 +133,22 @@ jobs:
             echo "time: $(date -u +%FT%TZ)"
             echo
             echo "## build outcome: ${{ steps.build.outcome }}"
+            echo "## probe outcome: ${{ steps.probe.outcome }}"
             echo
-            echo "## build.log (last 400 lines)"
+            echo "## build.log (last 500 lines)"
             echo '```'
-            tail -n 400 build.log 2>/dev/null || echo '(no build.log)'
+            tail -n 500 build.log 2>/dev/null || echo '(no build.log)'
+            echo '```'
+            echo
+            echo "## probe.log (last 500 lines)"
+            echo '```'
+            tail -n 500 probe.log 2>/dev/null || echo '(no probe.log)'
             echo '```'
             echo
             echo "## image layout probe"
             echo '```'
             docker run --rm --entrypoint bash flutter-ohos-builder:test -c \
-              'echo "--- ls /opt/ohos-sdk"; ls -la /opt/ohos-sdk; echo "--- dirs depth2"; find /opt/ohos-sdk -maxdepth 2 -type d | sort; echo "--- ls sdk"; ls -la /opt/ohos-sdk/sdk; echo "--- ls bin"; ls -la /opt/ohos-sdk/bin; echo "--- which"; command -v hvigorw; command -v ohpm' 2>&1 \
+              'echo "--- ls /opt/ohos-sdk"; ls -la /opt/ohos-sdk; echo "--- ls sdk"; ls -la /opt/ohos-sdk/sdk; echo "--- ls sdk/default"; ls -la /opt/ohos-sdk/sdk/default; echo "--- sdk-pkg.json"; cat /opt/ohos-sdk/sdk/default/sdk-pkg.json; echo "--- versions"; hvigorw -v; ohpm -v; flutter --version; echo "--- which"; command -v hvigorw; command -v ohpm' 2>&1 \
               || echo '(image not built - probe unavailable)'
             echo '```'
           } > .ci/diagnostics.md
