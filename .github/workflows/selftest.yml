@@ -76,12 +76,13 @@ jobs:
           docker build -t flutter-ohos-builder:test --progress=plain . 2>&1 | tee build.log
 
       # ---- FORENSICS --------------------------------------------------------
-      # The previous run reached CompileArkTS and died with 27 ArkTS errors,
-      # all inside @ohos/flutter_ohos. Root cause could be either
-      #   (a) the har pulled from ohpm targets a NEWER SDK than apiVersion 18, or
-      #   (b) the SDK ships the symbols but the .d.ts never gets loaded (config).
-      # [I] below settles it in one shot: grep the SDK for every missing symbol.
-      # Kept as a separate container + log so it survives even when the build dies.
+      # Kept from the api-18 investigation. Those runs reached CompileArkTS and
+      # died with 27 ArkTS errors inside @ohos/flutter_ohos, e.g.
+      #   Namespace 'autoFillManager' has no exported member 'AutoFillType'
+      # Upstream's own ReleaseNote for 3.41.9/3.41.10-ohos-1.0.1 settles it:
+      # 应用编译最低 SDK = 26.0.0, and "支持密码保险箱功能" (autoFill) is listed among
+      # that release's new features - so the engine har genuinely needs API 26.
+      # This step now mostly proves it from the artefact side (har @kit imports).
       - name: Forensics - dependency injection and SDK symbol availability
         id: forensics
         if: steps.build.outcome == 'success'
@@ -159,7 +160,7 @@ jobs:
             fi
           done
 
-          echo "===== [I] do the missing symbols exist in SDK apiVersion 18? (.d.ts only) ====="
+          echo "===== [I] do the ArkTS symbols the har needs exist in THIS SDK? (.d.ts only) ====="
           D=/opt/ohos-sdk/sdk/default/openharmony/ets/api
           for sym in AutoFillType AutoFillTriggerType FillRequest SaveRequest FillFailureResult \
                      BusinessError isCapsLockOn isNumLockOn CompetitionStrategy \
@@ -223,6 +224,13 @@ jobs:
           cd /tmp/probe/ohos && hvigorw --sync --no-daemon || true
           echo "===== flutter pub get ====="
           cd /tmp/probe && flutter pub get || true
+          echo "===== inject compileSdkVersion (same logic as entrypoint.sh) ====="
+          COMPILE_SDK=$(jq -r '.data.platformVersion // empty' /opt/ohos-sdk/sdk/default/sdk-pkg.json)
+          echo "SDK platformVersion = ${COMPILE_SDK}"
+          perl -0pi -e "s{(\"compatibleSdkVersion\"\s*:\s*\"[^\"]*\",)}{\"compileSdkVersion\": \"${COMPILE_SDK}\",\n        \$1}g" \
+            /tmp/probe/ohos/build-profile.json5
+          echo "--- build-profile.json5 after injection ---"
+          sed -n '/"products"/,/\]/p' /tmp/probe/ohos/build-profile.json5 || true
           echo "===== flutter build hap --debug ====="
           cd /tmp/probe && flutter build hap --debug || true
           echo "===== artifacts ====="
