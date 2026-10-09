@@ -20,9 +20,13 @@ ENV FLUTTER_HOME=/opt/flutter
 # Everything below is dictated by the shipped scripts, not guessed:
 #   bin/hvigorw exports  DEVECO_NODE_HOME=$root/tool/node
 #                        DEVECO_SDK_HOME=$root/sdk
-#   sdk/default/sdk-pkg.json  -> {"data":{"apiVersion":"26", ...}}
+#   sdk/default/sdk-pkg.json  -> {"data":{"apiVersion":"18", ...}}
 #   flutter_tools' HmosSdk reads DEVECO_SDK_HOME/default/sdk-pkg.json
 #   (packages/flutter_tools/lib/src/ohos/ohos_sdk.dart:347-391)
+#
+# NOTE: /opt/ohos-sdk IS command-line-tools/ itself. The extract must therefore
+# REPLACE that path, never `mv` into an already-existing directory - doing so
+# nests another command-line-tools/ level and every path below breaks.
 # ---------------------------------------------------------------------------
 ENV OHOS_HOME=/opt/ohos-sdk
 ENV OHOS_SDK_HOME=/opt/ohos-sdk/sdk
@@ -51,23 +55,29 @@ RUN curl -fsSL https://nodejs.org/dist/v18.20.1/node-v18.20.1-linux-x64.tar.xz \
 #
 # Source : zhongdaiqi/command-line-tools-for-hmos (GitHub Releases, mirrors Huawei's
 #          Command Line Tools for HarmonyOS)
-# Release: clt-26.0.0.851  ==  HarmonyOS 26.0.0  (apiVersion 26, hvigor 6.26.8)
+# Release: clt-5.1.0.849  ==  HarmonyOS 5.1.0  (apiVersion 18, SDK 5.1.0.125, hvigor 5.18.6)
 #
-# The release asset is a 2.34 GB ZIP that GitHub splits into two <=2 GiB parts
-# ("commandline-tools-linux-x64-26.0.0.851.part_aa" + ".part_ab"). The split is a
+# Chosen because it is the generation the Flutter fork actually targets: the project
+# template shipped by flutter_flutter 3.41.10-ohos-1.0.1 pins
+# compatibleSdkVersion "5.1.0(18)" and modelVersion "5.1.0", so the only SDK hvigor
+# will accept is apiVersion 18. The newer apis (6.1.1.418 -> api 20, 26.0.0.851 ->
+# api 26) cannot satisfy it.
+#
+# The release asset is a ~2.05 GB ZIP that GitHub splits into two <=2 GiB parts
+# ("commandline-tools-linux-x64-5.1.0.849.part_aa" + ".part_ab"). The split is a
 # plain byte cut of one archive - the ZIP64 central directory sits at absolute
-# offset 2328363434, past the end of part_aa (1610612736) - so concatenating the
+# offset 2136564979, past the end of part_aa (1610612736) - so concatenating the
 # parts reconstructs the archive exactly.
 #
-# Uncompressed payload is ~6.75 GB, so the split parts are deleted the moment
-# `unzip` is done, before the directory is moved into place.
+# Uncompressed payload is ~6 GB, so the split parts are deleted the moment `unzip`
+# is done, before the tree is moved into place.
 # ---------------------------------------------------------------------------
-ARG CLT_TAG=clt-26.0.0.851
-ARG CLT_ASSET=commandline-tools-linux-x64-26.0.0.851
+ARG CLT_TAG=clt-5.1.0.849
+ARG CLT_ASSET=commandline-tools-linux-x64-5.1.0.849
 ARG CLT_REPO=zhongdaiqi/command-line-tools-for-hmos
 ARG CLT_BASE_URL=https://github.com/${CLT_REPO}/releases/download/${CLT_TAG}
 RUN set -eux; \
-    mkdir -p /opt/ohos-sdk /tmp/clt; \
+    mkdir -p /tmp/clt; \
     cd /tmp/clt; \
     curl -fsSL --retry 3 --retry-all-errors -o part_aa "${CLT_BASE_URL}/${CLT_ASSET}.part_aa"; \
     curl -fsSL --retry 3 --retry-all-errors -o part_ab "${CLT_BASE_URL}/${CLT_ASSET}.part_ab"; \
@@ -80,6 +90,7 @@ RUN set -eux; \
     }; \
     rm -f clt.zip; \
     test -d /tmp/clt/x/command-line-tools; \
+    rm -rf /opt/ohos-sdk; \
     mv /tmp/clt/x/command-line-tools /opt/ohos-sdk; \
     rm -rf /tmp/clt
 
@@ -100,10 +111,15 @@ RUN echo "=== ls -la /opt/ohos-sdk ===";        ls -la /opt/ohos-sdk || true; \
 
 # --- hard assertions --------------------------------------------------------
 # Every path below was verified against the ZIP64 central directory of
-# clt-26.0.0.851 before this Dockerfile was written, so a failure here means the
+# clt-5.1.0.849 before this Dockerfile was written, so a failure here means the
 # upstream package changed shape - not that the paths were guessed wrong.
 RUN test -x /opt/ohos-sdk/bin/hvigorw && test -x /opt/ohos-sdk/bin/ohpm \
     && echo "ASSERT OK: bin/hvigorw and bin/ohpm are present and executable"
+
+# Regression guard for the bug that broke clt-26.0.0.851: `mv src /opt/ohos-sdk`
+# where /opt/ohos-sdk already existed put the tree one level too deep.
+RUN test ! -e /opt/ohos-sdk/command-line-tools \
+    && echo "ASSERT OK: no nested command-line-tools/ level under /opt/ohos-sdk"
 
 RUN test -f /opt/ohos-sdk/sdk/default/sdk-pkg.json \
     && echo "ASSERT OK: sdk/default/sdk-pkg.json (apiVersion) exists"
