@@ -75,6 +75,76 @@ jobs:
           set -o pipefail
           docker build -t flutter-ohos-builder:test --progress=plain . 2>&1 | tee build.log
 
+      # ---- FORENSICS --------------------------------------------------------
+      # The previous run reached CompileArkTS and died with 27 ArkTS errors,
+      # all inside @ohos/flutter_ohos. Root cause could be either
+      #   (a) the har pulled from ohpm targets a NEWER SDK than apiVersion 18, or
+      #   (b) the SDK ships the symbols but the .d.ts never gets loaded (config).
+      # [I] below settles it in one shot: grep the SDK for every missing symbol.
+      # Kept as a separate container + log so it survives even when the build dies.
+      - name: Forensics - dependency injection and SDK symbol availability
+        id: forensics
+        if: steps.build.outcome == 'success'
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          docker run --rm -i --entrypoint bash flutter-ohos-builder:test <<'EOS' 2>&1 | tee forensics.log
+          set -x
+          cd /tmp
+          rm -rf /tmp/fx
+          flutter create --platforms=ohos --project-name fx /tmp/fx
+
+          echo "===== [A] generated ohos/oh-package.json5 ====="
+          cat /tmp/fx/ohos/oh-package.json5 || true
+          echo "===== [B] generated ohos/entry/oh-package.json5 ====="
+          cat /tmp/fx/ohos/entry/oh-package.json5 || true
+          echo "===== [C] generated ohos/build-profile.json5 ====="
+          cat /tmp/fx/ohos/build-profile.json5 || true
+          echo "===== [D] hvigor wiring ====="
+          cat /tmp/fx/ohos/hvigorfile.ts || true
+          cat /tmp/fx/ohos/hvigorconfig.ts || true
+
+          echo "===== [E] hvigor --sync (triggers dependency injection) ====="
+          cd /tmp/fx/ohos && timeout 900 hvigorw --sync --no-daemon 2>&1 | tail -n 60 || true
+
+          echo "===== [F] oh-package.json5 AFTER injection ====="
+          echo "--- root ---";  cat /tmp/fx/ohos/oh-package.json5 || true
+          echo "--- entry ---"; cat /tmp/fx/ohos/entry/oh-package.json5 || true
+
+          echo "===== [G] installed @ohos/flutter_ohos manifest ====="
+          find /tmp/fx/ohos -path '*flutter_ohos*' -name 'oh-package.json5' 2>/dev/null | head -5 || true
+          for f in $(find /tmp/fx/ohos -path '*flutter_ohos*' -name 'oh-package.json5' 2>/dev/null | head -3); do
+            echo "--- $f"; head -n 40 "$f" || true
+          done
+
+          echo "===== [H] ohpm resolved dependency tree ====="
+          cd /tmp/fx/ohos && timeout 300 ohpm list 2>&1 | head -n 60 || true
+
+          echo "===== [I] do the missing symbols exist in SDK apiVersion 18? ====="
+          for sym in AutoFillType AutoFillTriggerType FillRequest SaveRequest FillFailureResult \
+                     BusinessError isCapsLockOn isNumLockOn CompetitionStrategy \
+                     getGlobalWindowMode GlobalWindowMode isInFreeWindowMode; do
+            found=$(grep -rl -- "$sym" \
+                    /opt/ohos-sdk/sdk/default/openharmony \
+                    /opt/ohos-sdk/sdk/default/hms 2>/dev/null | head -n 3 | tr '\n' ' ')
+            if [ -z "$found" ]; then
+              echo "  $sym -> ABSENT from SDK"
+            else
+              echo "  $sym -> present: $found"
+            fi
+          done
+
+          echo "===== [J] SDK component versions ====="
+          cat /opt/ohos-sdk/sdk/default/openharmony/oh-uni-package.json 2>/dev/null || true
+          ls /opt/ohos-sdk/sdk/default/openharmony || true
+
+          echo "===== [K] hvigor plugin versions ====="
+          head -n 12 /opt/ohos-sdk/hvigor/hvigor-ohos-plugin/package.json || true
+
+          echo "===== [L] which API dirs does the SDK actually ship? ====="
+          find /opt/ohos-sdk/sdk/default -maxdepth 3 -name 'oh-uni-package.json' 2>/dev/null | head -20 || true
+          EOS
+
       # Runs the actual SDK <-> flutter pairing check inside the built image:
       #   flutter create -> inspect generated ohos/build-profile.json5
       #                  -> hvigorw --sync (SDK resolution)
@@ -138,6 +208,18 @@ jobs:
             echo "## build.log (last 500 lines)"
             echo '```'
             tail -n 500 build.log 2>/dev/null || echo '(no build.log)'
+            echo '```'
+            echo
+            echo "## forensics outcome: ${{ steps.forensics.outcome }}"
+            echo
+            echo "## forensics.log (dependency injection + SDK symbol grep)"
+            echo '```'
+            cat forensics.log 2>/dev/null || echo '(no forensics.log)'
+            echo '```'
+            echo
+            echo "## hap artifact count"
+            echo '```'
+            grep -c '\.hap$' <<<"$(find /tmp -name '*.hap' 2>/dev/null)" 2>/dev/null || echo 0
             echo '```'
             echo
             echo "## probe.log (last 500 lines)"
