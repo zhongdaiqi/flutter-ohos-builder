@@ -41,10 +41,10 @@ RUN mkdir -p /opt/ohos-sdk && cd /opt/ohos-sdk && \
     ls -la /opt/ohos-sdk/command-line-tools/bin/ && \
     hvigorw -v && ohpm -v
 
-# Flutter OHOS fork (openharmony-sig)
-ARG FLUTTER_OHOS_BRANCH=dev
+# Flutter OHOS fork (GitHub mirror of openharmony-sig/flutter_flutter)
+ARG FLUTTER_OHOS_BRANCH=oh-3.41.9-release
 RUN git clone --depth 1 -b ${FLUTTER_OHOS_BRANCH} \
-    https://gitcode.com/openharmony-sig/flutter_flutter.git /opt/flutter
+    https://github.com/zhongdaiqi/flutter_flutter_ohos.git /opt/flutter
 
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh

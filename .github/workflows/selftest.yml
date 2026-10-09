@@ -37,7 +37,7 @@ jobs:
           test -f Dockerfile && echo 'Dockerfile: exists'
           grep -c 'FROM ubuntu' Dockerfile > /dev/null && echo 'Dockerfile: has FROM'
           grep -c 'ENTRYPOINT' Dockerfile > /dev/null && echo 'Dockerfile: has ENTRYPOINT'
-          grep -c 'flutter_flutter' Dockerfile > /dev/null && echo 'Dockerfile: clones Flutter OHOS fork'
+          grep -c 'flutter_flutter_ohos' Dockerfile > /dev/null && echo 'Dockerfile: clones Flutter OHOS fork from GitHub'
           grep -c 'ErBWs/ohos-sdk' Dockerfile > /dev/null && echo 'Dockerfile: downloads OHOS SDK'
           grep -c 'OHOS_SDK_VERSION' Dockerfile > /dev/null && echo 'Dockerfile: has SDK version arg'
 
