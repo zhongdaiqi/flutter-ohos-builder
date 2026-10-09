@@ -31,6 +31,9 @@ outputs:
   artifact-path:
     description: 'Path to the built .hap/.app artifact'
     value: ${{ steps.build.outputs.artifact-path }}
+  build-log:
+    description: 'Path to flutter-ohos-build.log, full output of the build'
+    value: ${{ steps.build.outputs.build-log }}
 
 runs:
   using: 'docker'

@@ -1,6 +1,20 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Mirror everything into a log file inside the working directory.
+#
+# With `uses:` (docker action) the project root is mounted at /github/workspace,
+# which is the runner's $GITHUB_WORKSPACE - so anything written here survives as an
+# Actions artifact. That matters because job LOGS are not retrievable through the
+# REST API for tokens without actions:read, leaving failures otherwise unreadable.
+LOG_FILE="flutter-ohos-build.log"
+exec > >(tee -a "${LOG_FILE}") 2>&1
+
+# `tee` lives in a subshell, so on any exit path - including failures under `set -e` -
+# wait for it to drain before the container tears down, or the tail of the log is lost.
+cleanup() { wait; sync; }
+trap cleanup EXIT
+
 # Parse args
 FLUTTER_VERSION=""
 OHOS_API=""
@@ -115,6 +129,7 @@ echo "================================"
 
 if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
     echo "artifact-path=${ARTIFACT_PATH}" >> "${GITHUB_OUTPUT}"
-else
-    echo "::set-output name=artifact-path::${ARTIFACT_PATH}"
+    echo "build-log=${LOG_FILE}" >> "${GITHUB_OUTPUT}"
 fi
+# `tee` runs in a subshell; make sure it has drained before the container exits.
+sync || true
