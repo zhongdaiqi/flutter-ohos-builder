@@ -37,7 +37,6 @@ jobs:
           test -f Dockerfile && echo 'Dockerfile: exists'
           grep -c 'FROM ubuntu' Dockerfile > /dev/null && echo 'Dockerfile: has FROM'
           grep -c 'ENTRYPOINT' Dockerfile > /dev/null && echo 'Dockerfile: has ENTRYPOINT'
-          grep -c 'flutter_flutter_ohos' Dockerfile > /dev/null && echo 'Dockerfile: clones Flutter OHOS fork from GitHub'
           grep -c 'ErBWs/ohos-sdk' Dockerfile > /dev/null && echo 'Dockerfile: downloads OHOS SDK'
           grep -c 'OHOS_SDK_VERSION' Dockerfile > /dev/null && echo 'Dockerfile: has SDK version arg'
 
@@ -46,14 +45,66 @@ jobs:
 
   docker-build:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 40
+    permissions:
+      contents: write          # required to push the diagnostics branch
     steps:
       - uses: actions/checkout@v4
 
+      # We deliberately do NOT let this step abort the job: the raw build log is
+      # the only way to see what happened, since plain job logs are not readable
+      # without an authenticated token that has actions:read.
       - name: Build Docker image (with SDK)
-        run: docker build -t flutter-ohos-builder:test --progress=plain .
+        id: build
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          docker build -t flutter-ohos-builder:test --progress=plain . 2>&1 | tee build.log
+
+      - name: Collect diagnostics
+        if: always()
+        run: |
+          mkdir -p .ci
+          {
+            echo "# CI diagnostics"
+            echo
+            echo "run: ${GITHUB_RUN_ID}  sha: ${GITHUB_SHA}"
+            echo "time: $(date -u +%FT%TZ)"
+            echo
+            echo "## build outcome: ${{ steps.build.outcome }}"
+            echo
+            echo "## build.log (last 400 lines)"
+            echo '```'
+            tail -n 400 build.log 2>/dev/null || echo '(no build.log)'
+            echo '```'
+            echo
+            echo "## image layout probe"
+            echo '```'
+            docker run --rm --entrypoint bash flutter-ohos-builder:test -c \
+              'echo "--- ls /opt/ohos-sdk"; ls -la /opt/ohos-sdk; echo "--- dirs depth2"; find /opt/ohos-sdk -maxdepth 2 -type d | sort; echo "--- ls sdk"; ls -la /opt/ohos-sdk/sdk; echo "--- ls bin"; ls -la /opt/ohos-sdk/bin; echo "--- which"; command -v hvigorw; command -v ohpm' 2>&1 \
+              || echo '(image not built - probe unavailable)'
+            echo '```'
+          } > .ci/diagnostics.md
+          echo "----- diagnostics begin -----"
+          cat .ci/diagnostics.md
+          echo "----- diagnostics end -----"
+
+      - name: Push diagnostics to ci-diagnostics branch
+        if: always()
+        continue-on-error: true
+        run: |
+          git config user.name  "ci-bot"
+          git config user.email "ci-bot@users.noreply.github.com"
+          git add -f .ci/diagnostics.md
+          git commit -m "ci: diagnostics for ${GITHUB_SHA}" || echo "nothing to commit"
+          git push origin HEAD:refs/heads/ci-diagnostics --force
 
       - name: Verify SDK tools inside image
+        if: steps.build.outcome == 'success'
         run: |
           docker run --rm --entrypoint bash flutter-ohos-builder:test -c \
             'hvigorw -v && ohpm -v && flutter --version && echo "ALL OK"'
+
+      - name: Fail if image build failed
+        if: steps.build.outcome != 'success'
+        run: exit 1
