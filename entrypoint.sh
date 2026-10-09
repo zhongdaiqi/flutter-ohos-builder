@@ -7,7 +7,17 @@ set -euo pipefail
 # which is the runner's $GITHUB_WORKSPACE - so anything written here survives as an
 # Actions artifact. That matters because job LOGS are not retrievable through the
 # REST API for tokens without actions:read, leaving failures otherwise unreadable.
-LOG_FILE="flutter-ohos-build.log"
+# Resolve the workspace the SAME way for both invocations styles:
+#   - docker action (`uses:`): GITHUB_WORKSPACE is set and points at /github/workspace,
+#     which is the runner's real workspace and therefore survives as an Actions artifact.
+#   - plain `docker run`: fall back to whatever directory we were started in.
+# Using an absolute path matters: if the log were opened relative to the container's
+# initial CWD and that CWD is not the workspace, the whole log vanishes instead of
+# landing somewhere we can read it afterwards.
+WORKSPACE_DIR="${GITHUB_WORKSPACE:-}"
+[[ -z "${WORKSPACE_DIR}" ]] && WORKSPACE_DIR="$(pwd)"
+LOG_FILE="${WORKSPACE_DIR}/flutter-ohos-build.log"
+touch "${LOG_FILE}" 2>/dev/null || LOG_FILE="$(pwd)/flutter-ohos-build.log"
 exec > >(tee -a "${LOG_FILE}") 2>&1
 
 # `tee` lives in a subshell, so on any exit path - including failures under `set -e` -
@@ -76,9 +86,18 @@ if [[ "${SIGN_ENABLED}" == "true" ]]; then
     echo "  profile (.p7b) base64: $(mask_len "${SIGN_PROFILE_BASE64}")"
     echo "  keystore (.p12) base64: $(mask_len "${SIGN_STORE_BASE64}")"
 fi
+echo "Workspace: ${WORKSPACE_DIR}"
+echo "Log file: ${LOG_FILE}"
 echo "================================"
 
-cd "${PROJECT_PATH}"
+# Resolve relative paths against the workspace, not against whatever CWD docker gave us.
+if [[ "${PROJECT_PATH}" = /* ]]; then
+    cd "${PROJECT_PATH}"
+else
+    cd "${WORKSPACE_DIR}/${PROJECT_PATH}"
+fi
+echo "Working dir: $(pwd)"
+ls -la
 
 # Step 1: Flutter environment check
 echo "[1/4] Checking Flutter environment..."
