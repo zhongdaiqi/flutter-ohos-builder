@@ -42,8 +42,10 @@ RUN mkdir -p /opt/ohos-sdk && cd /opt/ohos-sdk && \
     hvigorw -v && ohpm -v
 
 # Flutter OHOS fork (zhongdaiqi/flutter_flutter, synced from gitcode CPF-Flutter/flutter_flutter)
-ARG FLUTTER_OHOS_BRANCH=3.22.0-ohos
-RUN git clone --depth 1 -b ${FLUTTER_OHOS_BRANCH} \
+# NOTE: must clone a TAG (not branch) — flutter tool detects its version via git describe,
+# a depth-1 branch clone has no tags and reports "0.0.0-unknown", breaking pub version solving.
+ARG FLUTTER_OHOS_TAG=3.22.4-ohos-1.1.5
+RUN git clone --depth 1 -b ${FLUTTER_OHOS_TAG} \
     https://github.com/zhongdaiqi/flutter_flutter.git /opt/flutter
 
 COPY entrypoint.sh /entrypoint.sh
