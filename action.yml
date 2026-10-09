@@ -11,9 +11,9 @@ inputs:
     required: true
     default: '3.41.10-ohos-1.0.1'
   ohos-api:
-    description: 'HarmonyOS API level baked into the image (18 for clt-5.1.0.849)'
+    description: 'HarmonyOS API level baked into the image (26 for Command Line Tools 26.0.0 / clt-26.0.0.851)'
     required: true
-    default: '18'
+    default: '26'
   build-mode:
     description: 'Build mode: debug or release'
     required: false
