@@ -76,6 +76,16 @@ docker run --rm -v "$PWD":/workspace \
 | `build-mode` | `debug` or `release` | `release` |
 | `build-target` | `hap` or `app` | `app` |
 | `project-path` | Path to the Flutter project root | `.` |
+| `bundle-name` | `bundleName` written into `ohos/AppScope/app.json5`. Must equal the bundle name your `.p7b` profile was issued for. | *(empty = keep whatever `flutter create` generated)* |
+| `app-name` | Display name written into `ohos/AppScope/resources/base/element/string.json` | *(empty)* |
+| `sign-enabled` | `true` to fill `signingConfigs` in `build-profile.json5`. Required for `release`. | `false` |
+| `sign-alg` | `signAlg` | `SHA256withECDSA` |
+| `sign-key-alias` | `keyAlias` inside the `.p12` keystore | *(empty)* |
+| `sign-key-password` | `keyPassword` — alias password inside the `.p12` | *(empty)* |
+| `sign-store-password` | `storePassword` — keystore password of the `.p12` | *(empty)* |
+| `sign-cert-base64` | AGC certificate `.cer`, base64-encoded, single line | *(empty)* |
+| `sign-profile-base64` | Provisioning profile `.p7b`, base64-encoded, single line | *(empty)* |
+| `sign-store-file-base64` | Keystore `.p12`, base64-encoded, single line | *(empty)* |
 
 ## Outputs
 
@@ -90,6 +100,87 @@ docker run --rm -v "$PWD":/workspace \
 3. Runs `flutter pub get`.
 4. Injects `compileSdkVersion` into `ohos/build-profile.json5` to match the embedded SDK.
 5. Runs `flutter build hap|app --<mode>` and reports the artifact path.
+
+## Signing a release package
+
+`flutter create` emits `ohos/build-profile.json5` with an **empty** `signingConfigs`
+array while the product still declares `"signingConfig": "default"`. So a `release`
+build cannot produce a `.hap` / `.app` at all until that array is filled in.
+
+Repository secrets hold text only, so the two certificates and the keystore travel as
+base64. The builder decodes them to `/tmp` **inside the container** and writes the
+absolute paths into `build-profile.json5`:
+
+```
+certpath     /tmp/ohos-sign/app.cer     <-- sign-cert-base64
+profile      /tmp/ohos-sign/app.p7b     <-- sign-profile-base64
+storeFile    /tmp/ohos-sign/app.p12     <-- sign-store-file-base64
+```
+
+Nothing is written into the mounted workspace and the container is discarded after the
+step, so the material does not survive the job. Passwords are never echoed — the log
+only reports their character count, and the dumped `build-profile.json5` has
+`keyPassword` / `storePassword` replaced by `******`.
+
+### 1. Encode the three files (PowerShell, Windows)
+
+```powershell
+$b64 = [Convert]::ToBase64String([IO.File]::ReadAllBytes("D:\ohsFlutter\cert\tusn.p12"))
+[IO.File]::WriteAllText("D:\ohsFlutter\cert\tusn.p12.b64", $b64)
+```
+
+Repeat for the `.cer` and the `.p7b`. Each `.b64` file is **one single line** with no
+line breaks and no trailing newline — copy it out with Notepad and trim any whitespace.
+
+### 2. Add repository secrets
+
+Settings → Secrets and variables → Actions → New repository secret:
+
+| Secret | Value |
+|---|---|
+| `OHOS_SIGN_KEY_ALIAS` | keystore alias, e.g. `tuyun` |
+| `OHOS_SIGN_KEY_PASSWORD` | alias password inside the `.p12` |
+| `OHOS_SIGN_STORE_PASSWORD` | keystore password of the `.p12` |
+| `OHOS_SIGN_ALG` | `SHA256withECDSA` |
+| `OHOS_SIGN_CERT_BASE64` | contents of `<cert>.cer.b64` |
+| `OHOS_SIGN_PROFILE_BASE64` | contents of `<profile>.p7b.b64` |
+| `OHOS_SIGN_STORE_FILE_BASE64` | contents of `<keystore>.p12.b64` |
+
+Each secret must stay well under GitHub's ~48 KB limit; these files normally encode to
+2–10 KB. If a value ever exceeds it, split the base64 across several secrets and
+concatenate them in the step that feeds the action.
+
+### 3. Use them
+
+```yaml
+- uses: zhongdaiqi/flutter-ohos-builder@main
+  with:
+    flutter-version: '3.41.10-ohos-1.0.1'
+    ohos-api: '26'
+    bundle-name: 'com.zhongdaiqi.app'      # MUST match the .p7b
+    app-name: 'flutter-ohos-app-template'
+    build-mode: 'release'
+    build-target: 'app'
+    sign-enabled: 'true'
+    sign-alg: ${{ secrets.OHOS_SIGN_ALG }}
+    sign-key-alias: ${{ secrets.OHOS_SIGN_KEY_ALIAS }}
+    sign-key-password: ${{ secrets.OHOS_SIGN_KEY_PASSWORD }}
+    sign-store-password: ${{ secrets.OHOS_SIGN_STORE_PASSWORD }}
+    sign-cert-base64: ${{ secrets.OHOS_SIGN_CERT_BASE64 }}
+    sign-profile-base64: ${{ secrets.OHOS_SIGN_PROFILE_BASE64 }}
+    sign-store-file-base64: ${{ secrets.OHOS_SIGN_STORE_FILE_BASE64 }}
+```
+
+`bundle-name` is not cosmetic: the provisioning profile is issued against one exact
+bundle name, and hvigor refuses to sign if `ohos/AppScope/app.json5` disagrees.
+
+### What does NOT go into secrets
+
+| Item | Where it actually belongs |
+|---|---|
+| App name (`flutter-ohos-app-template`) | `app-name` input → `AppScope/resources/base/element/string.json` |
+| Bundle name (`com.zhongdaiqi.app`) | `bundle-name` input → `AppScope/app.json5`. Public metadata, not a secret. |
+| APP ID (`6917618631485252007`) | AppGallery Connect's own app identifier. Not needed to sign; only needed later to call the AGC publishing API. Store it as a repository **variable**, not a secret. |
 
 ## Troubleshooting
 
