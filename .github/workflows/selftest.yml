@@ -38,6 +38,33 @@ jobs:
           grep -c 'FROM ubuntu' Dockerfile > /dev/null && echo 'Dockerfile: has FROM'
           grep -c 'ENTRYPOINT' Dockerfile > /dev/null && echo 'Dockerfile: has ENTRYPOINT'
           grep -c 'flutter_flutter' Dockerfile > /dev/null && echo 'Dockerfile: clones Flutter OHOS fork'
+          grep -c 'ErBWs/ohos-sdk' Dockerfile > /dev/null && echo 'Dockerfile: downloads OHOS SDK'
+          grep -c 'OHOS_SDK_VERSION' Dockerfile > /dev/null && echo 'Dockerfile: has SDK version arg'
 
       - name: List all files
         run: find . -type f -not -path './.git/*' | sort
+
+  docker-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker image (with SDK)
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: false
+          load: true
+          tags: flutter-ohos-builder:test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Verify SDK tools inside image
+        run: |
+          docker run --rm flutter-ohos-builder:test --help 2>&1 | head -5 || true
+          docker run --rm --entrypoint bash flutter-ohos-builder:test -c \
+            'hvigorw -v && ohpm -v && echo "SDK OK"'
