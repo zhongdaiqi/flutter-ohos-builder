@@ -50,6 +50,40 @@ if [[ ! -d "ohos" ]]; then
 fi
 flutter pub get
 
+# Step 2.5: Pin compileSdkVersion to the SDK embedded in this image.
+#
+# The upstream ReleaseNote for 3.41.9/3.41.10-ohos-1.0.1 requires the app to be
+# COMPILED against SDK 26.0.0 ("应用编译最低 SDK 26.0.0"), while only its runtime
+# floor stays at 5.0.5(17) ("应用运行最低 SDK"). flutter create emits
+# build-profile.json5 with compatibleSdkVersion only - no compileSdkVersion - so
+# hvigor falls back to whatever the local SDK advertises. Compiling against an
+# older SDK (5.1.0.x -> apiVersion 18) blows up in CompileArkTS, because the
+# prebuilt Flutter engine har references API-26 symbols:
+#     Namespace 'autoFillManager' has no exported member 'AutoFillType'
+#
+# We read the version straight out of the embedded SDK rather than hardcoding it,
+# so the image and the generated project can never drift apart.
+BUILD_PROFILE="ohos/build-profile.json5"
+if [[ -f "${BUILD_PROFILE}" ]]; then
+    COMPILE_SDK="$(jq -r '.data.platformVersion // empty' \
+        "${DEVECO_SDK_HOME:-/opt/ohos-sdk/sdk}/default/sdk-pkg.json" 2>/dev/null || true)"
+    if [[ -n "${COMPILE_SDK}" ]]; then
+        if grep -q 'compileSdkVersion' "${BUILD_PROFILE}"; then
+            echo "[2.5/4] compileSdkVersion already present in ${BUILD_PROFILE}, leaving it alone."
+        else
+            echo "[2.5/4] Injecting \"compileSdkVersion\": \"${COMPILE_SDK}\" into ${BUILD_PROFILE}"
+            perl -0pi -e "s{(\"compatibleSdkVersion\"\s*:\s*\"[^\"]*\",)}{\"compileSdkVersion\": \"${COMPILE_SDK}\",\n        \$1}g" \
+                "${BUILD_PROFILE}"
+        fi
+        echo "--- ${BUILD_PROFILE} (products section) ---"
+        sed -n '/"products"/,/\]/p' "${BUILD_PROFILE}"
+    else
+        echo "[2.5/4] WARNING: could not read platformVersion from sdk-pkg.json; leaving ${BUILD_PROFILE} untouched."
+    fi
+else
+    echo "[2.5/4] ${BUILD_PROFILE} not found, skipping compileSdkVersion injection."
+fi
+
 # Step 3: Build
 echo "[3/4] Building ${BUILD_TARGET} (${BUILD_MODE})..."
 if [[ "${BUILD_TARGET}" == "app" ]]; then
