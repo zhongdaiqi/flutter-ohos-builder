@@ -54,26 +54,44 @@ RUN curl -fsSL https://nodejs.org/dist/v18.20.1/node-v18.20.1-linux-x64.tar.xz \
 # HarmonyOS Command Line Tools (SDK embedded at build time - no download at run time)
 #
 # Source : zhongdaiqi/command-line-tools-for-hmos (GitHub Releases, mirrors Huawei's
-#          Command Line Tools for HarmonyOS)
-# Release: clt-5.1.0.849  ==  HarmonyOS 5.1.0  (apiVersion 18, SDK 5.1.0.125, hvigor 5.18.6)
+#          "Command Line Tools for HarmonyOS")
+# Release: clt-26.0.0.851  ==  Command Line Tools 26.0.0 Release
+#          (SDK apiVersion 26 / platformVersion 26.0.0, hvigor 6.26.8)
 #
-# Chosen because it is the generation the Flutter fork actually targets: the project
-# template shipped by flutter_flutter 3.41.10-ohos-1.0.1 pins
-# compatibleSdkVersion "5.1.0(18)" and modelVersion "5.1.0", so the only SDK hvigor
-# will accept is apiVersion 18. The newer apis (6.1.1.418 -> api 20, 26.0.0.851 ->
-# api 26) cannot satisfy it.
+# This version is NOT a guess - it is the one the upstream fork declares mandatory.
+# release-notes/Flutter 3.41.9-ohos 1.0.1 ReleaseNote.md (== tag 3.41.10-ohos-1.0.1)
+# pins the pairing table as:
 #
-# The release asset is a ~2.05 GB ZIP that GitHub splits into two <=2 GiB parts
-# ("commandline-tools-linux-x64-5.1.0.849.part_aa" + ".part_ab"). The split is a
+#   DevEco Studio            : 26.0.0 Release
+#   Command Line Tools       : 26.0.0 Release
+#   引擎构建最低 SDK         : 26.0.0
+#   应用编译最低 SDK         : 26.0.0   -> build-profile.json5 "compileSdkVersion": "26.0.0"
+#   应用运行最低 SDK         : 5.0.5(17) -> build-profile.json5 "compatibleSdkVersion"
+#
+# i.e. the app must be COMPILED against SDK 26 even though the emitted package only
+# has to RUN on 5.0.5(17). Building against an older SDK (5.1.0.x => apiVersion 18)
+# fails in CompileArkTS: the prebuilt engine har shipped by this Flutter fork is
+# itself compiled against API 26 headers, so symbols it references are missing from
+# an api-18 SDK. That is exactly why clt-5.1.0.849 failed - the very same
+# ReleaseNote lists "支持密码保险箱功能" (autoFill) among the new features, and the
+# ArkTS errors were:
+#   Namespace 'autoFillManager' has no exported member 'AutoFillType'
+#
+# The template's compatibleSdkVersion "5.1.0(18)" needs no change: 18 >= 17 is above
+# the documented floor. compileSdkVersion is the one that must be injected - see
+# entrypoint.sh, which adds it to build-profile.json5 before every build.
+#
+# The release asset is a 2.34 GB ZIP that GitHub splits into two <=2 GiB parts
+# ("commandline-tools-linux-x64-26.0.0.851.part_aa" + ".part_ab"). The split is a
 # plain byte cut of one archive - the ZIP64 central directory sits at absolute
-# offset 2136564979, past the end of part_aa (1610612736) - so concatenating the
+# offset 2328363434, past the end of part_aa (1610612736) - so concatenating the
 # parts reconstructs the archive exactly.
 #
-# Uncompressed payload is ~6 GB, so the split parts are deleted the moment `unzip`
-# is done, before the tree is moved into place.
+# Uncompressed payload is ~6.75 GB, so the split parts are deleted the moment
+# `unzip` is done, before the tree is moved into place.
 # ---------------------------------------------------------------------------
-ARG CLT_TAG=clt-5.1.0.849
-ARG CLT_ASSET=commandline-tools-linux-x64-5.1.0.849
+ARG CLT_TAG=clt-26.0.0.851
+ARG CLT_ASSET=commandline-tools-linux-x64-26.0.0.851
 ARG CLT_REPO=zhongdaiqi/command-line-tools-for-hmos
 ARG CLT_BASE_URL=https://github.com/${CLT_REPO}/releases/download/${CLT_TAG}
 RUN set -eux; \
@@ -111,13 +129,14 @@ RUN echo "=== ls -la /opt/ohos-sdk ===";        ls -la /opt/ohos-sdk || true; \
 
 # --- hard assertions --------------------------------------------------------
 # Every path below was verified against the ZIP64 central directory of
-# clt-5.1.0.849 before this Dockerfile was written, so a failure here means the
+# clt-26.0.0.851 before this Dockerfile was written, so a failure here means the
 # upstream package changed shape - not that the paths were guessed wrong.
 RUN test -x /opt/ohos-sdk/bin/hvigorw && test -x /opt/ohos-sdk/bin/ohpm \
     && echo "ASSERT OK: bin/hvigorw and bin/ohpm are present and executable"
 
-# Regression guard for the bug that broke clt-26.0.0.851: `mv src /opt/ohos-sdk`
-# where /opt/ohos-sdk already existed put the tree one level too deep.
+# Regression guard for the bug that broke the first clt-26.0.0.851 attempt:
+# `mv src /opt/ohos-sdk` where /opt/ohos-sdk already existed put the tree one
+# level too deep (nested /opt/ohos-sdk/command-line-tools/...).
 RUN test ! -e /opt/ohos-sdk/command-line-tools \
     && echo "ASSERT OK: no nested command-line-tools/ level under /opt/ohos-sdk"
 
