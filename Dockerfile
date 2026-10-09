@@ -20,8 +20,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libgl1-mesa-dev libxkbcommon-x11-0 libpulse0 \
     && rm -rf /var/lib/apt/lists/*
 
-# JDK 17
-RUN curl -fsSL https://download.oracle.com/java/17/latest/jdk-17_linux-x64_bin.tar.gz \
+# JDK 17 (Adoptium Temurin - always latest GA, redirects to GitHub CDN)
+RUN curl -fsSL "https://api.adoptium.net/v3/binary/latest/17/ga/linux/x64/jdk/hotspot/normal/eclipse" \
     | tar xz -C /opt && mv /opt/jdk-17* /opt/jdk-17
 
 # Node.js 18 (Flutter tools need it; SDK also bundles its own)
