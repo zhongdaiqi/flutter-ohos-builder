@@ -1,5 +1,5 @@
 name: 'Flutter OHOS Builder'
-description: 'Build Flutter apps into OpenHarmony .hap/.app packages with optional signing'
+description: 'Build Flutter apps into HarmonyOS .hap/.app packages (HarmonyOS Command Line Tools + SDK embedded)'
 author: 'zhongdaiqi'
 branding:
   icon: 'package'
@@ -7,13 +7,13 @@ branding:
 
 inputs:
   flutter-version:
-    description: 'Flutter OHOS fork version (e.g. 3.22.4-ohos-1.1.5)'
+    description: 'Flutter OHOS fork version, i.e. a tag of zhongdaiqi/flutter_flutter (e.g. 3.41.10-ohos-1.0.1)'
     required: true
-    default: '3.22.4-ohos-1.1.5'
+    default: '3.41.10-ohos-1.0.1'
   ohos-api:
-    description: 'OpenHarmony API level (e.g. 12)'
+    description: 'HarmonyOS API level baked into the image (26 for clt-26.0.0.851)'
     required: true
-    default: '12'
+    default: '26'
   build-mode:
     description: 'Build mode: debug or release'
     required: false
