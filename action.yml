@@ -1,0 +1,48 @@
+name: 'Flutter OHOS Builder'
+description: 'Build Flutter apps into OpenHarmony .hap/.app packages with optional signing'
+author: 'zhongdaiqi'
+branding:
+  icon: 'package'
+  color: 'blue'
+
+inputs:
+  flutter-version:
+    description: 'Flutter OHOS fork version (e.g. 3.22.0-ohos)'
+    required: true
+    default: '3.22.0-ohos'
+  ohos-api:
+    description: 'OpenHarmony API level (e.g. 12)'
+    required: true
+    default: '12'
+  build-mode:
+    description: 'Build mode: debug or release'
+    required: false
+    default: 'release'
+  build-target:
+    description: 'Build target: hap or app'
+    required: false
+    default: 'app'
+  project-path:
+    description: 'Path to the Flutter project root'
+    required: false
+    default: '.'
+
+outputs:
+  artifact-path:
+    description: 'Path to the built .hap/.app artifact'
+    value: ${{ steps.build.outputs.artifact-path }}
+
+runs:
+  using: 'docker'
+  image: 'Dockerfile'
+  args:
+    - '--flutter-version'
+    - ${{ inputs.flutter-version }}
+    - '--ohos-api'
+    - ${{ inputs.ohos-api }}
+    - '--build-mode'
+    - ${{ inputs.build-mode }}
+    - '--build-target'
+    - ${{ inputs.build-target }}
+    - '--project-path'
+    - ${{ inputs.project-path }}

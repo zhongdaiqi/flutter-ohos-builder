@@ -1,0 +1,43 @@
+name: Self-test
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate action.yml syntax
+        run: |
+          python3 -c "
+          import yaml, sys
+          with open('action.yml') as f:
+              data = yaml.safe_load(f)
+          required = ['name', 'description', 'runs']
+          for key in required:
+              assert key in data, f'Missing key: {key}'
+          print('action.yml: valid')
+          print('  name:', data['name'])
+          print('  runs.using:', data['runs']['using'])
+          print('  runs.image:', data['runs']['image'])
+          "
+
+      - name: Validate entrypoint.sh syntax
+        run: |
+          bash -n entrypoint.sh && echo 'entrypoint.sh: syntax OK'
+          grep -c 'set -euo pipefail' entrypoint.sh > /dev/null && echo 'entrypoint.sh: has set -euo pipefail'
+
+      - name: Check Dockerfile
+        run: |
+          test -f Dockerfile && echo 'Dockerfile: exists'
+          grep -c 'FROM ubuntu' Dockerfile > /dev/null && echo 'Dockerfile: has FROM'
+          grep -c 'ENTRYPOINT' Dockerfile > /dev/null && echo 'Dockerfile: has ENTRYPOINT'
+          grep -c 'flutter_flutter' Dockerfile > /dev/null && echo 'Dockerfile: clones Flutter OHOS fork'
+
+      - name: List all files
+        run: find . -type f -not -path './.git/*' | sort
