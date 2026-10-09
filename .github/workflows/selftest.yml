@@ -75,115 +75,6 @@ jobs:
           set -o pipefail
           docker build -t flutter-ohos-builder:test --progress=plain . 2>&1 | tee build.log
 
-      # ---- FORENSICS --------------------------------------------------------
-      # Kept from the api-18 investigation. Those runs reached CompileArkTS and
-      # died with 27 ArkTS errors inside @ohos/flutter_ohos, e.g.
-      #   Namespace 'autoFillManager' has no exported member 'AutoFillType'
-      # Upstream's own ReleaseNote for 3.41.9/3.41.10-ohos-1.0.1 settles it:
-      # 应用编译最低 SDK = 26.0.0, and "支持密码保险箱功能" (autoFill) is listed among
-      # that release's new features - so the engine har genuinely needs API 26.
-      # This step now mostly proves it from the artefact side (har @kit imports).
-      - name: Forensics - dependency injection and SDK symbol availability
-        id: forensics
-        if: steps.build.outcome == 'success'
-        continue-on-error: true
-        run: |
-          set -o pipefail
-          docker run --rm -i --entrypoint bash flutter-ohos-builder:test <<'EOS' 2>&1 | tee forensics.log
-          set -x
-          cd /tmp
-          rm -rf /tmp/fx
-          flutter create --platforms=ohos --project-name fx /tmp/fx
-
-          echo "===== [A] generated ohos/oh-package.json5 ====="
-          cat /tmp/fx/ohos/oh-package.json5 || true
-          echo "===== [B] generated ohos/entry/oh-package.json5 ====="
-          cat /tmp/fx/ohos/entry/oh-package.json5 || true
-          echo "===== [C] generated ohos/build-profile.json5 ====="
-          cat /tmp/fx/ohos/build-profile.json5 || true
-          echo "===== [D] hvigor wiring ====="
-          cat /tmp/fx/ohos/hvigorfile.ts || true
-          cat /tmp/fx/ohos/hvigorconfig.ts || true
-
-          echo "===== [E2] engine artifacts / har, dumped AFTER the build attempt ====="
-          # The har only gets downloaded when flutter build runs, so we must build
-          # first; the compile step failing is expected and fine here.
-          cd /tmp/fx && timeout 2400 flutter build hap --debug 2>&1 | tail -n 40 || true
-
-          echo "===== [F] oh-package.json5 AFTER build (har injection) ====="
-          echo "--- root ---";  cat /tmp/fx/ohos/oh-package.json5 || true
-          echo "--- entry ---"; cat /tmp/fx/ohos/entry/oh-package.json5 || true
-          echo "--- entry .ohpm deps actually installed ---"
-          ls /tmp/fx/ohos/oh_modules/.ohpm/ 2>/dev/null | head -n 20 || true
-
-          echo "===== [G] installed @ohos/flutter_ohos manifest ====="
-          for f in $(find /tmp/fx/ohos -path '*flutter_ohos*' -name 'oh-package.json5' 2>/dev/null | head -3); do
-            echo "--- $f"; head -n 40 "$f" || true
-          done
-
-          echo "===== [H] ohpm resolved dependency tree ====="
-          cd /tmp/fx/ohos && timeout 300 ohpm list 2>&1 | head -n 40 || true
-
-          echo "===== [M] engine har artifacts on disk ====="
-          ls -la /opt/flutter/bin/cache/artifacts/engine/ohos-arm64/ 2>/dev/null || true
-          find /opt/flutter/bin/cache -name '*.har' 2>/dev/null | head -n 20 || true
-
-          HAR=$(find /opt/flutter/bin/cache -name 'flutter_embedding_debug.har' 2>/dev/null | head -n 1)
-          if [ -n "$HAR" ]; then
-            echo "--- har path: $HAR"
-            echo "--- har size: $(stat -c%s "$HAR") bytes"
-            echo "--- har listing (top 40) ---"
-            unzip -l "$HAR" 2>/dev/null | head -n 40 || true
-            echo "--- har oh-package.json5 ---"
-            unzip -p "$HAR" oh-package.json5 2>/dev/null || echo '(none at root)'
-            echo "--- har src/main/module.json5 (SDK requirement) ---"
-            unzip -p "$HAR" src/main/module.json5 2>/dev/null || echo '(none)'
-            echo "--- @kit.* imports used by the har ets sources ---"
-            rm -rf /tmp/harx && mkdir -p /tmp/harx
-            cd /tmp/harx && unzip -o -q "$HAR" '*.ets' 2>/dev/null || true
-            grep -rho "from '@kit\.[A-Za-z0-9]*'" /tmp/harx 2>/dev/null | sort -u | head -n 40 || true
-            echo "--- lines mentioning autoFillManager / CompetitionStrategy ---"
-            grep -rn "autoFillManager\|CompetitionStrategy\|getGlobalWindowMode" /tmp/harx 2>/dev/null | head -n 15 || true
-          else
-            echo 'NO flutter_embedding_debug.har FOUND'
-          fi
-
-          echo "===== [N] SDK ets api declarations ====="
-          ls /opt/ohos-sdk/sdk/default/openharmony/ets/api/ 2>/dev/null | head -n 25 || true
-          for f in @kit.AbilityKit.d.ts @kit.ArkUI.d.ts; do
-            p="/opt/ohos-sdk/sdk/default/openharmony/ets/api/$f"
-            if [ -f "$p" ]; then
-              echo "--- $p ($(wc -l < "$p") lines)"
-              grep -c 'AutoFillType' "$p" 2>/dev/null || true
-            else
-              echo "--- $p MISSING"
-            fi
-          done
-
-          echo "===== [I] do the ArkTS symbols the har needs exist in THIS SDK? (.d.ts only) ====="
-          D=/opt/ohos-sdk/sdk/default/openharmony/ets/api
-          for sym in AutoFillType AutoFillTriggerType FillRequest SaveRequest FillFailureResult \
-                     BusinessError isCapsLockOn isNumLockOn CompetitionStrategy \
-                     getGlobalWindowMode GlobalWindowMode isInFreeWindowMode; do
-            found=$(grep -rl --include='*.d.ts' -- "$sym" "$D" /opt/ohos-sdk/sdk/default/hms 2>/dev/null \
-                    | head -n 3 | tr '\n' ' ')
-            if [ -z "$found" ]; then
-              echo "  $sym -> ABSENT from SDK .d.ts"
-            else
-              echo "  $sym -> present in: $found"
-            fi
-          done
-
-          echo "===== [J] SDK component versions ====="
-          cat /opt/ohos-sdk/sdk/default/openharmony/oh-uni-package.json 2>/dev/null || true
-          ls /opt/ohos-sdk/sdk/default/openharmony || true
-
-          echo "===== [K] hvigor plugin versions ====="
-          head -n 12 /opt/ohos-sdk/hvigor/hvigor-ohos-plugin/package.json || true
-
-          echo "===== [L] which API dirs does the SDK actually ship? ====="
-          find /opt/ohos-sdk/sdk/default -maxdepth 3 -name 'oh-uni-package.json' 2>/dev/null | head -20 || true
-          EOS
 
       # Runs the actual SDK <-> flutter pairing check inside the built image:
       #   flutter create -> inspect generated ohos/build-profile.json5
@@ -255,18 +146,6 @@ jobs:
             echo "## build.log (last 500 lines)"
             echo '```'
             tail -n 500 build.log 2>/dev/null || echo '(no build.log)'
-            echo '```'
-            echo
-            echo "## forensics outcome: ${{ steps.forensics.outcome }}"
-            echo
-            echo "## forensics.log (dependency injection + SDK symbol grep)"
-            echo '```'
-            cat forensics.log 2>/dev/null || echo '(no forensics.log)'
-            echo '```'
-            echo
-            echo "## hap artifact count"
-            echo '```'
-            grep -c '\.hap$' <<<"$(find /tmp -name '*.hap' 2>/dev/null)" 2>/dev/null || echo 0
             echo '```'
             echo
             echo "## probe.log (last 500 lines)"
