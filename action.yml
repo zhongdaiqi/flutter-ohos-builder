@@ -7,9 +7,9 @@ branding:
 
 inputs:
   flutter-version:
-    description: 'Flutter OHOS fork version (e.g. 3.22.0-ohos)'
+    description: 'Flutter OHOS fork version (e.g. 3.22.4-ohos-1.1.5)'
     required: true
-    default: '3.22.0-ohos'
+    default: '3.22.4-ohos-1.1.5'
   ohos-api:
     description: 'OpenHarmony API level (e.g. 12)'
     required: true
