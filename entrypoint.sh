@@ -34,6 +34,9 @@ cd "${PROJECT_PATH}"
 # Step 1: Flutter environment check
 echo "[1/4] Checking Flutter environment..."
 flutter --version
+echo "HarmonyOS SDK (DEVECO_SDK_HOME=${DEVECO_SDK_HOME:-unset}):"
+cat "${DEVECO_SDK_HOME:-/opt/ohos-sdk/sdk}/default/sdk-pkg.json" 2>/dev/null || echo "  (sdk-pkg.json not readable)"
+echo "hvigor: $(hvigorw -v 2>/dev/null || echo unknown)"
 echo "flutter doctor:"
 flutter doctor -v || true
 
@@ -76,4 +79,8 @@ echo "  Artifact: ${ARTIFACT_PATH}"
 echo "  Size: $(du -h "${ARTIFACT_PATH}" | cut -f1)"
 echo "================================"
 
-echo "::set-output name=artifact-path::${ARTIFACT_PATH}"
+if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
+    echo "artifact-path=${ARTIFACT_PATH}" >> "${GITHUB_OUTPUT}"
+else
+    echo "::set-output name=artifact-path::${ARTIFACT_PATH}"
+fi
