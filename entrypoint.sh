@@ -37,8 +37,14 @@ flutter --version
 echo "flutter doctor:"
 flutter doctor -v || true
 
-# Step 2: Install dependencies
+# Step 2: Ensure ohos platform exists, then install dependencies
 echo "[2/4] Installing dependencies..."
+if [[ ! -d "ohos" ]]; then
+    PROJECT_NAME="$(grep -m1 '^name:' pubspec.yaml | sed 's/^name:[[:space:]]*//' | tr -d '[:space:]')"
+    PROJECT_NAME="${PROJECT_NAME:-app}"
+    echo "ohos/ platform not found, generating via: flutter create --platforms=ohos --project-name=${PROJECT_NAME} ."
+    flutter create --platforms=ohos --project-name="${PROJECT_NAME}" .
+fi
 flutter pub get
 
 # Step 3: Build
