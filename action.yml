@@ -1,0 +1,124 @@
+name: 'Flutter OHOS Builder'
+description: 'Build Flutter apps into HarmonyOS .hap/.app packages (HarmonyOS Command Line Tools + SDK embedded)'
+author: 'zhongdaiqi'
+branding:
+  icon: 'package'
+  color: 'blue'
+
+inputs:
+  flutter-version:
+    description: 'Flutter OHOS fork version, i.e. a tag of zhongdaiqi/flutter_flutter (e.g. 3.41.10-ohos-1.0.1)'
+    required: true
+    default: '3.41.10-ohos-1.0.1'
+  ohos-api:
+    description: 'HarmonyOS API level baked into the image (26 for Command Line Tools 26.0.0 / clt-26.0.0.851)'
+    required: true
+    default: '26'
+  build-mode:
+    description: 'Build mode: debug or release'
+    required: false
+    default: 'release'
+  build-target:
+    description: 'Build target: hap or app'
+    required: false
+    default: 'app'
+  project-path:
+    description: 'Path to the Flutter project root'
+    required: false
+    default: '.'
+
+  # ---- app identity (not secret) -------------------------------------------
+  bundle-name:
+    description: 'bundleName written into ohos/AppScope/app.json5, e.g. com.zhongdaiqi.app. MUST match the one your .p7b profile was provisioned for, otherwise signing fails.'
+    required: false
+    default: ''
+  app-name:
+    description: 'Display name written into ohos/AppScope/resources/base/element/string.json'
+    required: false
+    default: ''
+
+  # ---- signing -------------------------------------------------------------
+  # Files (.cer / .p7b / .p12) are carried base64-encoded because repository
+  # secrets hold text only. The builder decodes them into /tmp inside the
+  # container and injects the absolute paths into build-profile.json5.
+  sign-enabled:
+    description: 'Enable signing: true or false. Release builds cannot produce a package without it.'
+    required: false
+    default: 'false'
+  sign-alg:
+    description: 'signAlg, normally SHA256withECDSA'
+    required: false
+    default: 'SHA256withECDSA'
+  sign-key-alias:
+    description: 'keyAlias of the .p12 keystore'
+    required: false
+    default: ''
+  sign-key-password:
+    description: 'keyPassword - the alias password inside the .p12'
+    required: false
+    default: ''
+  sign-store-password:
+    description: 'storePassword - the .p12 keystore password'
+    required: false
+    default: ''
+  sign-cert-base64:
+    description: 'AGC certificate (.cer) base64-encoded, single line, no line breaks'
+    required: false
+    default: ''
+  sign-profile-base64:
+    description: 'Provisioning profile (.p7b) base64-encoded, single line, no line breaks'
+    required: false
+    default: ''
+  sign-store-file-base64:
+    description: 'Keystore (.p12) base64-encoded, single line, no line breaks'
+    required: false
+    default: ''
+  sign-material-base64:
+    description: 'ZIP of the DevEco signing material/ directory (the per-keystore files that sit next to the .p12 and are required to decrypt the encrypted keyPassword/storePassword), base64-encoded. Without it signing fails with ENOENT <dir>/material.'
+    required: false
+    default: ''
+
+outputs:
+  artifact-path:
+    description: 'Path to the built .hap/.app artifact'
+    value: ${{ steps.build.outputs.artifact-path }}
+  build-log:
+    description: 'Path to flutter-ohos-build.log, full output of the build'
+    value: ${{ steps.build.outputs.build-log }}
+
+runs:
+  using: 'docker'
+  image: 'Dockerfile'
+  args:
+    - '--flutter-version'
+    - ${{ inputs.flutter-version }}
+    - '--ohos-api'
+    - ${{ inputs.ohos-api }}
+    - '--build-mode'
+    - ${{ inputs.build-mode }}
+    - '--build-target'
+    - ${{ inputs.build-target }}
+    - '--project-path'
+    - ${{ inputs.project-path }}
+    - '--bundle-name'
+    - ${{ inputs.bundle-name }}
+    - '--app-name'
+    - ${{ inputs.app-name }}
+    - '--sign-enabled'
+    - ${{ inputs.sign-enabled }}
+    - '--sign-alg'
+    - ${{ inputs.sign-alg }}
+    - '--sign-key-alias'
+    - ${{ inputs.sign-key-alias }}
+    - '--sign-key-password'
+    - ${{ inputs.sign-key-password }}
+    - '--sign-store-password'
+    - ${{ inputs.sign-store-password }}
+    - '--sign-cert-base64'
+    - ${{ inputs.sign-cert-base64 }}
+    - '--sign-profile-base64'
+    - ${{ inputs.sign-profile-base64 }}
+    - '--sign-store-file-base64'
+    - ${{ inputs.sign-store-file-base64 }}
+    - '--sign-material-base64'
+    - ${{ inputs.sign-material-base64 }}

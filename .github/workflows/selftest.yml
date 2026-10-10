@@ -1,0 +1,185 @@
+name: Self-test
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate action.yml syntax
+        run: |
+          python3 -c "
+          import yaml
+          with open('action.yml') as f:
+              data = yaml.safe_load(f)
+          required = ['name', 'description', 'runs']
+          for key in required:
+              assert key in data, f'Missing key: {key}'
+          print('action.yml: valid')
+          print('  name:', data['name'])
+          print('  runs.using:', data['runs']['using'])
+          print('  runs.image:', data['runs']['image'])
+          print('  flutter-version default:', data['inputs']['flutter-version']['default'])
+          print('  ohos-api default:', data['inputs']['ohos-api']['default'])
+          "
+
+      - name: Validate entrypoint.sh syntax
+        run: |
+          bash -n entrypoint.sh && echo 'entrypoint.sh: syntax OK'
+          grep -c 'set -euo pipefail' entrypoint.sh > /dev/null && echo 'entrypoint.sh: has set -euo pipefail'
+
+      - name: Check Dockerfile
+        run: |
+          test -f Dockerfile && echo 'Dockerfile: exists'
+          grep -c 'FROM ubuntu' Dockerfile > /dev/null && echo 'Dockerfile: has FROM'
+          grep -c 'ENTRYPOINT' Dockerfile > /dev/null && echo 'Dockerfile: has ENTRYPOINT'
+          grep -c 'command-line-tools-for-hmos' Dockerfile > /dev/null && echo 'Dockerfile: downloads HarmonyOS Command Line Tools'
+          grep -c 'clt-5.1.0.849' Dockerfile > /dev/null && echo 'Dockerfile: pinned to clt-5.1.0.849'
+          grep -c '3.41.10-ohos-1.0.1' Dockerfile > /dev/null && echo 'Dockerfile: pinned to flutter 3.41.10-ohos-1.0.1'
+
+      - name: List all files
+        run: find . -type f -not -path './.git/*' | sort
+
+  docker-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: write          # required to push the diagnostics branch
+    steps:
+      - uses: actions/checkout@v4
+
+      # The embedded CLT is ~2.3 GB compressed / ~6.8 GB extracted and the flutter
+      # clone is ~1 GB, so reclaim the preinstalled toolchains first.
+      - name: Free disk space
+        run: |
+          df -h /
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+                      /usr/local/share/boost /opt/hostedtoolcache/CodeQL || true
+          sudo docker image prune -af || true
+          df -h /
+
+      # We deliberately do NOT let this step abort the job: the raw build log is
+      # the only way to see what happened, since plain job logs are not readable
+      # without an authenticated token that has actions:read.
+      - name: Build Docker image (with SDK)
+        id: build
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          docker build -t flutter-ohos-builder:test --progress=plain . 2>&1 | tee build.log
+
+
+      # Runs the actual SDK <-> flutter pairing check inside the built image:
+      #   flutter create -> inspect generated ohos/build-profile.json5
+      #                  -> hvigorw --sync (SDK resolution)
+      #                  -> flutter build hap --debug (end to end)
+      # Every command is `|| true` on purpose so the diagnostics always get out.
+      - name: Probe SDK/flutter pairing inside image
+        id: probe
+        if: steps.build.outcome == 'success'
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          docker run --rm -i --entrypoint bash flutter-ohos-builder:test <<'EOS' 2>&1 | tee probe.log
+          set -x
+          df -h /
+          echo "===== SDK metadata (.data) ====="
+          cat /opt/ohos-sdk/sdk/default/sdk-pkg.json
+          echo "===== flutter --version ====="
+          flutter --version
+          echo "===== flutter doctor -v ====="
+          flutter doctor -v || true
+          echo "===== flutter create ====="
+          cd /tmp
+          flutter create --platforms=ohos --project-name probe /tmp/probe || true
+          echo "===== generated ohos/build-profile.json5 ====="
+          cat /tmp/probe/ohos/build-profile.json5 || true
+          echo "===== generated ohos/entry/build-profile.json5 ====="
+          cat /tmp/probe/ohos/entry/build-profile.json5 || true
+          echo "===== generated ohos/oh-package.json5 ====="
+          cat /tmp/probe/ohos/oh-package.json5 || true
+          echo "===== generated ohos/hvigor/hvigor-config.json5 ====="
+          cat /tmp/probe/ohos/hvigor/hvigor-config.json5 || true
+          echo "===== ls generated ohos ====="
+          ls -la /tmp/probe/ohos || true
+          echo "===== hvigorw -v (in project) ====="
+          cd /tmp/probe/ohos && hvigorw -v --no-daemon || true
+          echo "===== hvigorw --sync --no-daemon ====="
+          cd /tmp/probe/ohos && hvigorw --sync --no-daemon || true
+          echo "===== flutter pub get ====="
+          cd /tmp/probe && flutter pub get || true
+          echo "===== inject compileSdkVersion (same logic as entrypoint.sh) ====="
+          COMPILE_SDK=$(jq -r '.data.platformVersion // empty' /opt/ohos-sdk/sdk/default/sdk-pkg.json)
+          echo "SDK platformVersion = ${COMPILE_SDK}"
+          perl -0pi -e "s{(\"compatibleSdkVersion\"\s*:\s*\"[^\"]*\",)}{\"compileSdkVersion\": \"${COMPILE_SDK}\",\n        \$1}g" \
+            /tmp/probe/ohos/build-profile.json5
+          echo "--- build-profile.json5 after injection ---"
+          sed -n '/"products"/,/\]/p' /tmp/probe/ohos/build-profile.json5 || true
+          echo "===== flutter build hap --debug ====="
+          cd /tmp/probe && flutter build hap --debug || true
+          echo "===== artifacts ====="
+          find /tmp/probe/ohos -name '*.hap' -o -name '*.app' 2>/dev/null || true
+          echo "===== df -h / ====="
+          df -h /
+          EOS
+
+      - name: Collect diagnostics
+        if: always()
+        run: |
+          mkdir -p .ci
+          {
+            echo "# CI diagnostics"
+            echo
+            echo "run: ${GITHUB_RUN_ID}  sha: ${GITHUB_SHA}"
+            echo "time: $(date -u +%FT%TZ)"
+            echo
+            echo "## build outcome: ${{ steps.build.outcome }}"
+            echo "## probe outcome: ${{ steps.probe.outcome }}"
+            echo
+            echo "## build.log (last 500 lines)"
+            echo '```'
+            tail -n 500 build.log 2>/dev/null || echo '(no build.log)'
+            echo '```'
+            echo
+            echo "## probe.log (last 500 lines)"
+            echo '```'
+            tail -n 500 probe.log 2>/dev/null || echo '(no probe.log)'
+            echo '```'
+            echo
+            echo "## image layout probe"
+            echo '```'
+            docker run --rm --entrypoint bash flutter-ohos-builder:test -c \
+              'echo "--- ls /opt/ohos-sdk"; ls -la /opt/ohos-sdk; echo "--- ls sdk"; ls -la /opt/ohos-sdk/sdk; echo "--- ls sdk/default"; ls -la /opt/ohos-sdk/sdk/default; echo "--- sdk-pkg.json"; cat /opt/ohos-sdk/sdk/default/sdk-pkg.json; echo "--- versions"; hvigorw -v; ohpm -v; flutter --version; echo "--- which"; command -v hvigorw; command -v ohpm' 2>&1 \
+              || echo '(image not built - probe unavailable)'
+            echo '```'
+          } > .ci/diagnostics.md
+          echo "----- diagnostics begin -----"
+          cat .ci/diagnostics.md
+          echo "----- diagnostics end -----"
+
+      - name: Push diagnostics to ci-diagnostics branch
+        if: always()
+        continue-on-error: true
+        run: |
+          git config user.name  "ci-bot"
+          git config user.email "ci-bot@users.noreply.github.com"
+          git add -f .ci/diagnostics.md
+          git commit -m "ci: diagnostics for ${GITHUB_SHA}" || echo "nothing to commit"
+          git push origin HEAD:refs/heads/ci-diagnostics --force
+
+      - name: Verify SDK tools inside image
+        if: steps.build.outcome == 'success'
+        run: |
+          docker run --rm --entrypoint bash flutter-ohos-builder:test -c \
+            'hvigorw -v && ohpm -v && flutter --version && echo "ALL OK"'
+
+      - name: Fail if image build failed
+        if: steps.build.outcome != 'success'
+        run: exit 1
