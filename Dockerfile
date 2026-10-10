@@ -34,7 +34,15 @@ ENV HOS_SDK_HOME=/opt/ohos-sdk/sdk
 ENV DEVECO_SDK_HOME=/opt/ohos-sdk/sdk
 ENV DEVECO_NODE_HOME=/opt/ohos-sdk/tool/node
 ENV OHOS_NDK_HOME=/opt/ohos-sdk/sdk/default/openharmony
-ENV PATH=/opt/ohos-sdk/bin:/opt/ohos-sdk/tool/node/bin:$JAVA_HOME/bin:$NODE_HOME/bin:$FLUTTER_HOME/bin:$PATH
+
+# Android SDK (required for build-target=android). cmdline-tools + platform-tools are
+# installed below; the platforms/build-tools are pinned so an `android` build never has
+# to reach out to dl.google.com at run time (same "everything baked in" philosophy as
+# the OHOS SDK above). If a future Flutter fork bumps compileSdk beyond what is pinned
+# here, entrypoint.sh auto-installs the missing platform via sdkmanager at run time.
+ENV ANDROID_HOME=/opt/android-sdk
+ENV ANDROID_SDK_ROOT=/opt/android-sdk
+ENV PATH=/opt/android-sdk/cmdline-tools/latest/bin:/opt/android-sdk/platform-tools:/opt/ohos-sdk/bin:/opt/ohos-sdk/tool/node/bin:$JAVA_HOME/bin:$NODE_HOME/bin:$FLUTTER_HOME/bin:$PATH
 
 # System dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -49,6 +57,34 @@ RUN curl -fsSL "https://api.adoptium.net/v3/binary/latest/17/ga/linux/x64/jdk/ho
 # Node.js 18 (Flutter tools need it; the SDK also bundles its own under tool/node)
 RUN curl -fsSL https://nodejs.org/dist/v18.20.1/node-v18.20.1-linux-x64.tar.xz \
     | tar xJ -C /opt && mv /opt/node-v18.20.1-linux-x64 /opt/node
+
+# ---------------------------------------------------------------------------
+# Android SDK (required only for build-target=android)
+#
+# Installed at build time so `flutter build apk` has a real Android toolchain and
+# never downloads at run time. We pin a spread of platforms/build-tools so the most
+# common compileSdk values (34/35/36) are already present; entrypoint.sh installs
+# any other compileSdk it detects via sdkmanager (with network) as a safety net.
+#
+# NOTE: sdkmanager is a Java tool, so this step runs AFTER the JDK above is in place.
+# ---------------------------------------------------------------------------
+ARG ANDROID_CMDLINE_TOOLS=11076708
+RUN set -eux; \
+    mkdir -p /opt/android-sdk/cmdline-tools; \
+    curl -fsSL --retry 3 --retry-all-errors \
+      "https://dl.google.com/android/repository/commandlinetools-linux-${ANDROID_CMDLINE_TOOLS}_latest.zip" \
+      -o /tmp/cmdline-tools.zip; \
+    unzip -q /tmp/cmdline-tools.zip -d /opt/android-sdk/cmdline-tools; \
+    mv /opt/android-sdk/cmdline-tools/cmdline-tools /opt/android-sdk/cmdline-tools/latest; \
+    rm -f /tmp/cmdline-tools.zip; \
+    yes | sdkmanager --sdk_root=/opt/android-sdk --licenses >/dev/null 2>&1 || true; \
+    for pkg in "platform-tools" \
+               "platforms;android-34" "platforms;android-35" "platforms;android-36" \
+               "build-tools;34.0.0" "build-tools;35.0.0" "build-tools;36.0.0"; do \
+        sdkmanager --sdk_root=/opt/android-sdk "$pkg" >/dev/null 2>&1 \
+          || echo "WARN: sdkmanager could not install $pkg (may not exist for this cmdline-tools rev) - continuing"; \
+    done; \
+    yes | sdkmanager --sdk_root=/opt/android-sdk --licenses >/dev/null 2>&1 || true
 
 # ---------------------------------------------------------------------------
 # HarmonyOS Command Line Tools (SDK embedded at build time - no download at run time)
@@ -146,6 +182,15 @@ RUN test -f /opt/ohos-sdk/sdk/default/sdk-pkg.json \
 RUN test -f /opt/ohos-sdk/hvigor/hvigor/package.json \
     && test -f /opt/ohos-sdk/hvigor/bin/hvigorw.js \
     && echo "ASSERT OK: hvigor runtime is present"
+
+# --- Android SDK sanity checks --------------------------------------------
+RUN echo "=== sdkmanager version ==="; sdkmanager --version || true; \
+    echo "=== installed Android packages ==="; \
+    sdkmanager --sdk_root=/opt/android-sdk --list_installed 2>/dev/null | grep -E 'Android SDK|platforms|build-tools' || true; \
+    test -x /opt/android-sdk/cmdline-tools/latest/bin/sdkmanager \
+      && echo "ASSERT OK: sdkmanager is present and executable"; \
+    test -d /opt/android-sdk/platforms/android-35 \
+      && echo "ASSERT OK: platforms;android-35 present (covers Flutter 3.41 default compileSdk)"
 
 # ---------------------------------------------------------------------------
 # Flutter OHOS fork (zhongdaiqi/flutter_flutter, synced from gitcode CPF-Flutter/flutter_flutter)

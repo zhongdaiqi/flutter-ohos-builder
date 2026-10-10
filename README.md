@@ -30,6 +30,7 @@ This image currently ships this combination:
 | hvigor | 6.26.8 | included in the CLT above |
 | JDK | 17 (Temurin) | Adoptium |
 | Node | 18.20.1 | nodejs.org |
+| Android SDK | cmdline-tools + platform-tools + platforms 34/35/36 + build-tools 34.0.0/35.0.0/36.0.0 (baked in; entrypoint auto-installs any other compileSdk at run time) | dl.google.com |
 
 Which comes straight from the upstream ReleaseNote bundled with the fork
 (`release-notes/Flutter 3.41.9-ohos 1.0.1 ReleaseNote.md`, i.e. tag `3.41.10-ohos-1.0.1`):

@@ -49,6 +49,7 @@
 | hvigor | `6.26.8` |
 | JDK | `17` |
 | Node | `18.20.1` |
+| Android SDK | cmdline-tools + platform-tools + platforms `34/35/36` + build-tools `34.0.0/35.0.0/36.0.0`（已内置；entrypoint 会按 Flutter fork 实际 compileSdk 在运行时自动补齐缺失平台） |
 
 最关键的一点是：
 

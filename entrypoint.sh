@@ -133,6 +133,43 @@ EOF
     echo "[Android] Keystore path = ${ANDROID_SIGN_DIR}/keystore.jks"
 }
 
+# Make sure the Android platform (and build-tools) the generated project needs is
+# actually installed in the image. `flutter create --platforms=android` emits a
+# build.gradle that references `flutter.compileSdkVersion`; the numeric value lives
+# inside the Flutter Gradle plugin shipped in /opt/flutter. We resolve it and, if the
+# matching platform is missing, install it with sdkmanager (network is available on
+# the GitHub runner). This is a safety net: the image already pins android-34/35/36.
+ensure_android_platform() {
+    local sdk="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
+    if [[ -z "${sdk}" ]]; then
+        echo "WARNING: ANDROID_HOME/ANDROID_SDK_ROOT not set - cannot verify Android platform."
+        return 0
+    fi
+    echo "Android SDK root: ${sdk}"
+    echo "sdkmanager: $(command -v sdkmanager || echo MISSING)"
+
+    local csdk
+    csdk="$(grep -rhoE '(compileSdkVersion|compileSdk)\s*[:=]\s*[0-9]+' \
+              "${FLUTTER_HOME}/packages/flutter_tools/gradle" 2>/dev/null \
+              | grep -oE '[0-9]+' | tail -1)"
+    csdk="${csdk:-35}"
+    echo "Resolved Flutter fork compileSdk = ${csdk}"
+
+    if [[ ! -d "${sdk}/platforms/android-${csdk}" ]]; then
+        echo "Android platform android-${csdk} not in image; installing via sdkmanager..."
+        yes | sdkmanager --sdk_root="${sdk}" "platforms;android-${csdk}" >/dev/null 2>&1 \
+            || echo "WARNING: could not install platforms;android-${csdk} (no network?). Build may fail."
+    else
+        echo "Android platform android-${csdk} already present."
+    fi
+
+    if [[ ! -d "${sdk}/build-tools/${csdk}.0.0" ]]; then
+        echo "build-tools ${csdk}.0.0 not in image; installing via sdkmanager..."
+        yes | sdkmanager --sdk_root="${sdk}" "build-tools;${csdk}.0.0" >/dev/null 2>&1 \
+            || echo "WARNING: could not install build-tools;${csdk}.0.0; relying on an already-installed build-tools."
+    fi
+}
+
 # CLI summary
 
 echo "================================"
@@ -191,8 +228,19 @@ if [[ "${BUILD_TARGET}" == "android" && "${ANDROID_SIGN_ENABLED}" == "true" ]]; 
     build_android_signing
 fi
 
-# Step 3: Ensure ohos platform exists, then install dependencies
-if [[ "${BUILD_TARGET}" != "android" ]]; then
+# Step 3: Ensure the target platform exists, then install dependencies
+if [[ "${BUILD_TARGET}" == "android" ]]; then
+    echo "[3/4] Preparing Android platform..."
+    if [[ ! -d "android" ]]; then
+        PROJECT_NAME="$(grep -m1 '^name:' pubspec.yaml | sed 's/^name:[[:space:]]*//' | tr -d '[:space:]')"
+        PROJECT_NAME="${PROJECT_NAME:-app}"
+        echo "android/ platform not found, generating via: flutter create --platforms=android --project-name=${PROJECT_NAME} ."
+        flutter create --platforms=android --project-name="${PROJECT_NAME}" .
+    fi
+    # Guarantee the Android SDK platform/build-tools the generated project needs.
+    ensure_android_platform
+    flutter pub get
+elif [[ "${BUILD_TARGET}" != "android" ]]; then
     echo "[3/4] Installing dependencies..."
     if [[ ! -d "ohos" ]]; then
         PROJECT_NAME="$(grep -m1 '^name:' pubspec.yaml | sed 's/^name:[[:space:]]*//' | tr -d '[:space:]')"
@@ -205,23 +253,35 @@ fi
 
 # Android build path (default unsigned unless signing is enabled)
 if [[ "${BUILD_TARGET}" == "android" ]]; then
-    echo "[3/4] Building Android target..."
+    ARTIFACT_GLOB="build/app/outputs/flutter-apk/*.apk"
+    echo "[3/4] Building Android target (${BUILD_MODE})..."
+    echo "Android toolchain:"
+    flutter doctor -v 2>/dev/null | grep -iA1 'Android toolchain' || true
+
+    # Capture the exit code explicitly (don't let `set -e` abort before cleanup).
+    set +e
     if [[ "${ANDROID_SIGN_ENABLED}" == "true" ]]; then
         flutter build apk --release < /dev/null
         FLUTTER_RC=$?
-        ARTIFACT_GLOB="build/app/outputs/flutter-apk/*.apk"
     else
         flutter build apk --debug < /dev/null
         FLUTTER_RC=$?
-        ARTIFACT_GLOB="build/app/outputs/flutter-apk/*.apk"
     fi
-
+    set -e
     echo "[3/4] flutter build exited with code ${FLUTTER_RC}"
+
+    # Always scrub signing material, even on failure.
     if [[ -n "${ANDROID_SIGN_DIR:-}" ]]; then
         rm -rf "${ANDROID_SIGN_DIR}"
     fi
     if [[ -f "android/key.properties" ]]; then
         rm -f "android/key.properties"
+    fi
+
+    if [[ "${FLUTTER_RC}" -ne 0 ]]; then
+        echo "ERROR: flutter build apk failed with code ${FLUTTER_RC}."
+        find build -type f \( -name '*.apk' -o -name '*.aab' \) 2>/dev/null || echo "  (no artifact found)"
+        exit "${FLUTTER_RC}"
     fi
 
     echo "[4/4] Locating Android artifact..."
