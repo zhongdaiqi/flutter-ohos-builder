@@ -1,5 +1,7 @@
 # flutter-ohos-builder
 
+[中文](./README.zh-CN.md) | [English](./README.md)
+
 > GitHub Action that builds Flutter apps into HarmonyOS `.hap` / `.app` packages.
 > Also usable as a plain Docker image for local or self-hosted CI.
 
