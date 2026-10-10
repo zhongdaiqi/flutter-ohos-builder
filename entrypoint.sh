@@ -30,8 +30,6 @@ TEE_PID=$!
 TEE_PID=""
 cleanup() {
     sync
-    # Belt and suspenders: if $! did not yield the tee PID (old bash), find it
-    # by scanning /proc - no procps required.
     if [[ -z "${TEE_PID}" ]]; then
         for d in /proc/[0-9]*; do
             if tr '\0' ' ' < "${d}/cmdline" 2>/dev/null | grep -q "tee -a ${LOG_FILE}"; then
@@ -68,6 +66,12 @@ OHOS_SIGN_CERT_BASE64=""
 OHOS_SIGN_PROFILE_BASE64=""
 OHOS_SIGN_STORE_FILE_BASE64=""
 OHOS_SIGN_MATERIAL_BASE64=""
+ANDROID_SIGN_ENABLED="false"
+ANDROID_SIGN_KEY_ALIAS=""
+ANDROID_SIGN_KEY_PASSWORD=""
+ANDROID_SIGN_STORE_BASE64=""
+ANDROID_SIGN_STORE_PASSWORD=""
+ANDROID_SIGN_DIR=""
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -87,22 +91,49 @@ while [[ $# -gt 0 ]]; do
         --ohos-sign-profile-base64) OHOS_SIGN_PROFILE_BASE64="$2"; shift 2;;
         --ohos-sign-store-file-base64) OHOS_SIGN_STORE_FILE_BASE64="$2"; shift 2;;
         --ohos-sign-material-base64) OHOS_SIGN_MATERIAL_BASE64="$2"; shift 2;;
+        --android-sign-enabled) ANDROID_SIGN_ENABLED="$2"; shift 2;;
+        --android-sign-key-alias) ANDROID_SIGN_KEY_ALIAS="$2"; shift 2;;
+        --android-sign-key-password) ANDROID_SIGN_KEY_PASSWORD="$2"; shift 2;;
+        --android-sign-store-base64) ANDROID_SIGN_STORE_BASE64="$2"; shift 2;;
+        --android-sign-store-password) ANDROID_SIGN_STORE_PASSWORD="$2"; shift 2;;
         *) echo "Unknown arg: $1"; exit 1;;
     esac
 done
 
-# Back-compat aliases for older sign-* names are intentionally removed to enforce
-# the new naming scheme consistently across the repository.
-
 # Never let the credentials reach the log, even by accident: report their length only.
 mask_len() { local v="${1:-}"; echo "${#v} characters"; }
 
-# Every dump of build-profile.json5 MUST go through this - error paths included.
-# A raw `cat` in an error branch put real keyPassword/storePassword values into
-# the published ci-diagnostics log in run 37997257092. Lesson kept here in code.
 dump_profile_redacted() {
     perl -pe 's/("(?:keyPassword|storePassword)"\s*:\s*)"[^"]*"/$1"******"/g' "${1}"
 }
+
+build_android_signing() {
+    ANDROID_SIGN_DIR="/tmp/android-sign"
+    rm -rf "${ANDROID_SIGN_DIR}"
+    mkdir -p "${ANDROID_SIGN_DIR}"
+
+    if [[ -z "${ANDROID_SIGN_STORE_BASE64}" ]]; then
+        echo "ERROR: android keystore (android-sign-store-base64) is empty."
+        return 1
+    fi
+
+    printf '%s' "${ANDROID_SIGN_STORE_BASE64}" | base64 -d > "${ANDROID_SIGN_DIR}/keystore.jks" \
+        || { echo "ERROR: android keystore is not valid base64."; return 1; }
+    echo "  ${ANDROID_SIGN_DIR}/keystore.jks: $(wc -c < "${ANDROID_SIGN_DIR}/keystore.jks") bytes"
+
+    KEYPROPS_FILE="android/key.properties"
+    cat > "${KEYPROPS_FILE}" <<EOF
+storePassword=${ANDROID_SIGN_STORE_PASSWORD}
+keyPassword=${ANDROID_SIGN_KEY_PASSWORD}
+keyAlias=${ANDROID_SIGN_KEY_ALIAS}
+storeFile=${ANDROID_SIGN_DIR}/keystore.jks
+EOF
+
+    echo "[Android] Wrote ${KEYPROPS_FILE}"
+    echo "[Android] Keystore path = ${ANDROID_SIGN_DIR}/keystore.jks"
+}
+
+# CLI summary
 
 echo "================================"
 echo "  Flutter OHOS Builder"
@@ -114,7 +145,7 @@ echo "Build target: ${BUILD_TARGET}"
 echo "Project path: ${PROJECT_PATH}"
 echo "bundleName: ${BUNDLE_NAME:-(not set - keep whatever flutter create generated)}"
 echo "appName: ${APP_NAME:-(not set)}"
-echo "Signing enabled: ${OHOS_SIGN_ENABLED}"
+echo "OHOS signing enabled: ${OHOS_SIGN_ENABLED}"
 if [[ "${OHOS_SIGN_ENABLED}" == "true" ]]; then
     echo "  signAlg: ${OHOS_SIGN_ALG}"
     echo "  keyAlias: ${OHOS_SIGN_KEY_ALIAS}"
@@ -124,6 +155,13 @@ if [[ "${OHOS_SIGN_ENABLED}" == "true" ]]; then
     echo "  profile (.p7b) base64: $(mask_len "${OHOS_SIGN_PROFILE_BASE64}")"
     echo "  keystore (.p12) base64: $(mask_len "${OHOS_SIGN_STORE_FILE_BASE64}")"
     echo "  sign material zip base64: $(mask_len "${OHOS_SIGN_MATERIAL_BASE64}")"
+fi
+echo "Android signing enabled: ${ANDROID_SIGN_ENABLED}"
+if [[ "${ANDROID_SIGN_ENABLED}" == "true" ]]; then
+    echo "  Android keyAlias: ${ANDROID_SIGN_KEY_ALIAS}"
+    echo "  Android keyPassword: $(mask_len "${ANDROID_SIGN_KEY_PASSWORD}")"
+    echo "  Android storePassword: $(mask_len "${ANDROID_SIGN_STORE_PASSWORD}")"
+    echo "  Android keystore base64: $(mask_len "${ANDROID_SIGN_STORE_BASE64}")"
 fi
 echo "Workspace: ${WORKSPACE_DIR}"
 echo "Log file: ${LOG_FILE}"
@@ -147,20 +185,71 @@ echo "hvigor: $(hvigorw -v 2>/dev/null || echo unknown)"
 echo "flutter doctor:"
 flutter doctor -v || true
 
-# Step 2: Ensure ohos platform exists, then install dependencies
-echo "[2/4] Installing dependencies..."
-if [[ ! -d "ohos" ]]; then
-    PROJECT_NAME="$(grep -m1 '^name:' pubspec.yaml | sed 's/^name:[[:space:]]*//' | tr -d '[:space:]')"
-    PROJECT_NAME="${PROJECT_NAME:-app}"
-    echo "ohos/ platform not found, generating via: flutter create --platforms=ohos --project-name=${PROJECT_NAME} ."
-    flutter create --platforms=ohos --project-name="${PROJECT_NAME}" .
+# Step 2: Android signing first if target is Android
+if [[ "${BUILD_TARGET}" == "android" && "${ANDROID_SIGN_ENABLED}" == "true" ]]; then
+    echo "[2/4] Preparing Android signing material..."
+    build_android_signing
 fi
-flutter pub get
 
-# Step 2.2: App identity
+# Step 3: Ensure ohos platform exists, then install dependencies
+if [[ "${BUILD_TARGET}" != "android" ]]; then
+    echo "[3/4] Installing dependencies..."
+    if [[ ! -d "ohos" ]]; then
+        PROJECT_NAME="$(grep -m1 '^name:' pubspec.yaml | sed 's/^name:[[:space:]]*//' | tr -d '[:space:]')"
+        PROJECT_NAME="${PROJECT_NAME:-app}"
+        echo "ohos/ platform not found, generating via: flutter create --platforms=ohos --project-name=${PROJECT_NAME} ."
+        flutter create --platforms=ohos --project-name="${PROJECT_NAME}" .
+    fi
+    flutter pub get
+fi
+
+# Android build path (default unsigned unless signing is enabled)
+if [[ "${BUILD_TARGET}" == "android" ]]; then
+    echo "[3/4] Building Android target..."
+    if [[ "${ANDROID_SIGN_ENABLED}" == "true" ]]; then
+        flutter build apk --release < /dev/null
+        FLUTTER_RC=$?
+        ARTIFACT_GLOB="build/app/outputs/flutter-apk/*.apk"
+    else
+        flutter build apk --debug < /dev/null
+        FLUTTER_RC=$?
+        ARTIFACT_GLOB="build/app/outputs/flutter-apk/*.apk"
+    fi
+
+    echo "[3/4] flutter build exited with code ${FLUTTER_RC}"
+    if [[ -n "${ANDROID_SIGN_DIR:-}" ]]; then
+        rm -rf "${ANDROID_SIGN_DIR}"
+    fi
+    if [[ -f "android/key.properties" ]]; then
+        rm -f "android/key.properties"
+    fi
+
+    echo "[4/4] Locating Android artifact..."
+    ARTIFACT_PATH="$(ls ${ARTIFACT_GLOB} 2>/dev/null | head -1)"
+    if [[ -z "${ARTIFACT_PATH}" ]]; then
+        echo "ERROR: No Android artifact found at ${ARTIFACT_GLOB}"
+        find build -type f \( -name '*.apk' -o -name '*.aab' \) 2>/dev/null || echo "  (none found)"
+        exit 1
+    fi
+
+    echo "================================"
+    echo "  BUILD SUCCESS"
+    echo "  Artifact: ${ARTIFACT_PATH}"
+    echo "  Size: $(du -h "${ARTIFACT_PATH}" | cut -f1)"
+    echo "================================"
+
+    if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
+        echo "artifact-path=${ARTIFACT_PATH}" >> "${GITHUB_OUTPUT}"
+        echo "build-log=${LOG_FILE}" >> "${GITHUB_OUTPUT}"
+    fi
+    sync || true
+    exit 0
+fi
+
+# Step 2.2: App identity for OHOS builds
 APP_JSON="ohos/AppScope/app.json5"
 if [[ -n "${BUNDLE_NAME}" ]]; then
-    echo "[2.2/4] Setting bundleName -> ${BUNDLE_NAME}"
+    echo "[3/4] Setting bundleName -> ${BUNDLE_NAME}"
     if [[ -f "${APP_JSON}" ]]; then
         perl -0777 -i -pe "s/(\"bundleName\"\s*:\s*\")[^\"]*(\")/\${1}${BUNDLE_NAME}\${2}/g" "${APP_JSON}"
     else
@@ -172,7 +261,7 @@ fi
 
 APP_SCOPE_STRINGS="ohos/AppScope/resources/base/element/string.json"
 if [[ -n "${APP_NAME}" ]]; then
-    echo "[2.2/4] Setting app name -> ${APP_NAME}"
+    echo "[3/4] Setting app name -> ${APP_NAME}"
     if [[ -f "${APP_SCOPE_STRINGS}" ]]; then
         perl -0777 -i -pe "s/(\"name\"\s*:\s*\"app_name\"[\s\S]*?\"value\"\s*:\s*\")[^\"]*(\")/\${1}${APP_NAME}\${2}/g" "${APP_SCOPE_STRINGS}"
     else
@@ -183,7 +272,7 @@ if [[ -n "${APP_NAME}" ]]; then
 fi
 
 if [[ "${OHOS_SIGN_ENABLED}" == "true" ]] && [[ -z "${BUNDLE_NAME}" ]]; then
-    echo "[2.2/4] WARNING: signing is enabled but no bundle-name was supplied."
+    echo "[3/4] WARNING: signing is enabled but no bundle-name was supplied."
     echo "         The generated bundleName is whatever flutter create produced"
     echo "         (derived from the project name) - it must match your .p7b."
     echo "--- ${APP_JSON} (as generated) ---"
@@ -196,25 +285,24 @@ if [[ -f "${BUILD_PROFILE}" ]]; then
     COMPILE_SDK="$(jq -r '.data.platformVersion // empty' "${DEVECO_SDK_HOME:-/opt/ohos-sdk/sdk}/default/sdk-pkg.json" 2>/dev/null || true)"
     if [[ -n "${COMPILE_SDK}" ]]; then
         if grep -q 'compileSdkVersion' "${BUILD_PROFILE}"; then
-            echo "[2.5/4] compileSdkVersion already present in ${BUILD_PROFILE}, leaving it alone."
+            echo "[3/4] compileSdkVersion already present in ${BUILD_PROFILE}, leaving it alone."
         else
-            echo "[2.5/4] Injecting \"compileSdkVersion\": \"${COMPILE_SDK}\" into ${BUILD_PROFILE}"
-            perl -0pi -e "s{(\"compatibleSdkVersion\"\s*:\s*\"[^\"]*\",)}{\"compileSdkVersion\": \"${COMPILE_SDK}\",\n        \$1}g" \
-                "${BUILD_PROFILE}"
+            echo "[3/4] Injecting \"compileSdkVersion\": \"${COMPILE_SDK}\" into ${BUILD_PROFILE}"
+            perl -0pi -e "s{(\"compatibleSdkVersion\"\s*:\s*\"[^\"]*\",)}{\"compileSdkVersion\": \"${COMPILE_SDK}\",\n        \$1}g" "${BUILD_PROFILE}"
         fi
         echo "--- ${BUILD_PROFILE} (products section) ---"
         sed -n '/"products"/,/\]/p' "${BUILD_PROFILE}"
     else
-        echo "[2.5/4] WARNING: could not read platformVersion from sdk-pkg.json; leaving ${BUILD_PROFILE} untouched."
+        echo "[3/4] WARNING: could not read platformVersion from sdk-pkg.json; leaving ${BUILD_PROFILE} untouched."
     fi
 else
-    echo "[2.5/4] ${BUILD_PROFILE} not found, skipping compileSdkVersion injection."
+    echo "[3/4] ${BUILD_PROFILE} not found, skipping compileSdkVersion injection."
 fi
 
-# Step 2.7: Signing material
+# Step 2.7: OHOS signing material
 SIGN_DIR="/tmp/ohos-sign"
 if [[ "${OHOS_SIGN_ENABLED}" == "true" ]]; then
-    echo "[2.7/4] Writing signing material..."
+    echo "[3/4] Writing OHOS signing material..."
     rm -rf "${SIGN_DIR}"
     mkdir -p "${SIGN_DIR}"
 
@@ -241,7 +329,6 @@ if [[ "${OHOS_SIGN_ENABLED}" == "true" ]]; then
 
     if [[ -z "${OHOS_SIGN_MATERIAL_BASE64}" ]]; then
         echo "ERROR: sign material is missing - supply it through the ohos-sign-material-base64 input."
-        echo "       DevEco-encrypted passwords cannot be decrypted without the material/ directory that sits next to the .p12 on the machine that encrypted them."
         exit 1
     fi
     printf '%s' "${OHOS_SIGN_MATERIAL_BASE64}" | base64 -d > "${SIGN_DIR}/material.zip" \
@@ -260,7 +347,7 @@ if [[ "${OHOS_SIGN_ENABLED}" == "true" ]]; then
     fi
 
     if grep -q '"certpath"' "${BUILD_PROFILE}"; then
-        echo "[2.7/4] signingConfigs already populated in ${BUILD_PROFILE}, leaving it as-is."
+        echo "[3/4] signingConfigs already populated in ${BUILD_PROFILE}, leaving it as-is."
     else
         cat > "${SIGN_DIR}/signing_block.txt" <<EOB
     "signingConfigs": [
@@ -287,7 +374,7 @@ EOB
         ' "${BUILD_PROFILE}"
 
         if grep -q '"certpath"' "${BUILD_PROFILE}"; then
-            echo "[2.7/4] signingConfigs injected into ${BUILD_PROFILE}"
+            echo "[3/4] signingConfigs injected into ${BUILD_PROFILE}"
         else
             echo "ERROR: could not inject signingConfigs into ${BUILD_PROFILE}."
             echo "       The expected anchor \"signingConfigs\": [] was not found."
@@ -308,19 +395,20 @@ EOB
     dump_profile_redacted "${BUILD_PROFILE}"
 else
     if [[ "${BUILD_MODE}" == "release" ]]; then
-        echo "[2.7/4] WARNING: release build WITHOUT signing configuration."
+        echo "[3/4] WARNING: release build WITHOUT signing configuration."
         echo "         hvigor cannot produce a signed ${BUILD_TARGET} unless signingConfigs is filled in."
         echo "         Either pass the ohos-sign-* inputs, or build with --build-mode debug."
     fi
 fi
 
 # Step 3: Build
-echo "[3/4] Building ${BUILD_TARGET} (${BUILD_MODE})..."
 if [[ "${BUILD_TARGET}" == "app" ]]; then
+    echo "[4/4] Building OHOS app (${BUILD_MODE})..."
     flutter build app --"${BUILD_MODE}" < /dev/null
     FLUTTER_RC=$?
     ARTIFACT_GLOB="ohos/build/outputs/default/*.app"
 elif [[ "${BUILD_TARGET}" == "hap" ]]; then
+    echo "[4/4] Building OHOS hap (${BUILD_MODE})..."
     flutter build hap --"${BUILD_MODE}" < /dev/null
     FLUTTER_RC=$?
     ARTIFACT_GLOB="ohos/entry/build/default/outputs/default/*.hap"
@@ -328,17 +416,15 @@ else
     echo "ERROR: Unknown build target: ${BUILD_TARGET}"
     exit 1
 fi
-echo "[3/4] flutter build exited with code ${FLUTTER_RC}"
 
+echo "[4/4] flutter build exited with code ${FLUTTER_RC}"
 rm -rf "${SIGN_DIR}"
 
-# Step 4: Locate and report artifact
-echo "[4/4] Locating build artifact..."
 ARTIFACT_PATH="$(ls ${ARTIFACT_GLOB} 2>/dev/null | head -1)"
 if [[ -z "${ARTIFACT_PATH}" ]]; then
     echo "ERROR: No artifact found at ${ARTIFACT_GLOB}"
-    echo "Listing ohos/build/ outputs:"
-    find ohos/build -type f \( -name '*.hap' -o -name '*.app' \) 2>/dev/null || echo "  (none found)"
+    echo "Listing outputs:"
+    find ohos -type f \( -name '*.hap' -o -name '*.app' \) 2>/dev/null || echo "  (none found)"
     exit 1
 fi
 
