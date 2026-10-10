@@ -61,14 +61,16 @@ Key rule: app compilation must use `compileSdkVersion=26`, while runtime compati
 | `project-path` | Flutter project root | `.` |
 | `bundle-name` | `bundleName` in `ohos/AppScope/app.json5` | empty |
 | `app-name` | App display name | empty |
-| `sign-enabled` | Whether to fill `signingConfigs` | `false` |
-| `sign-alg` | Signing algorithm | `SHA256withECDSA` |
-| `sign-key-alias` | Key alias in the `.p12` keystore | empty |
-| `sign-key-password` | Alias password | empty |
-| `sign-store-password` | Keystore password | empty |
-| `sign-cert-base64` | `.cer` file in base64 | empty |
-| `sign-profile-base64` | `.p7b` profile in base64 | empty |
-| `sign-store-file-base64` | `.p12` keystore in base64 | empty |
+| `ohos-sign-enabled` | Whether to fill `signingConfigs` | `false` |
+| `ohos-sign-alg` | Signing algorithm | `SHA256withECDSA` |
+| `ohos-sign-key-alias` | Key alias in the `.p12` keystore | empty |
+| `ohos-sign-key-password` | Alias password | empty |
+| `ohos-sign-store-password` | Keystore password | empty |
+| `ohos-sign-cert-base64` | `.cer` file in base64 | empty |
+| `ohos-sign-profile-base64` | `.p7b` profile in base64 | empty |
+| `ohos-sign-store-file-base64` | `.p12` keystore in base64 | empty |
+
+> Note: action input names above were renamed in the documentation to use the `ohos-` prefix for consistency; the secrets you provide to GitHub should use the `OHOS_` prefix (e.g. `OHOS_SIGN_ALG`). In workflow steps, map secrets to inputs like in the example below.
 
 ## How it works
 
@@ -93,14 +95,14 @@ The action accepts base64-encoded signing files and writes them to `/tmp` inside
     app-name: 'flutter-ohos-app-template'
     build-mode: 'release'
     build-target: 'app'
-    sign-enabled: 'true'
-    sign-alg: ${{ secrets.OHOS_SIGN_ALG }}
-    sign-key-alias: ${{ secrets.OHOS_SIGN_KEY_ALIAS }}
-    sign-key-password: ${{ secrets.OHOS_SIGN_KEY_PASSWORD }}
-    sign-store-password: ${{ secrets.OHOS_SIGN_STORE_PASSWORD }}
-    sign-cert-base64: ${{ secrets.OHOS_SIGN_CERT_BASE64 }}
-    sign-profile-base64: ${{ secrets.OHOS_SIGN_PROFILE_BASE64 }}
-    sign-store-file-base64: ${{ secrets.OHOS_SIGN_STORE_FILE_BASE64 }}
+    ohos-sign-enabled: 'true'
+    ohos-sign-alg: ${{ secrets.OHOS_SIGN_ALG }}
+    ohos-sign-key-alias: ${{ secrets.OHOS_SIGN_KEY_ALIAS }}
+    ohos-sign-key-password: ${{ secrets.OHOS_SIGN_KEY_PASSWORD }}
+    ohos-sign-store-password: ${{ secrets.OHOS_SIGN_STORE_PASSWORD }}
+    ohos-sign-cert-base64: ${{ secrets.OHOS_SIGN_CERT_BASE64 }}
+    ohos-sign-profile-base64: ${{ secrets.OHOS_SIGN_PROFILE_BASE64 }}
+    ohos-sign-store-file-base64: ${{ secrets.OHOS_SIGN_STORE_FILE_BASE64 }}
 ```
 
 ## Troubleshooting
