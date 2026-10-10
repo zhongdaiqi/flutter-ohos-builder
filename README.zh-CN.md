@@ -18,7 +18,7 @@
 
 `flutter-ohos-builder` 就是为了解决这些问题而设计的。
 
-它把 Flutter OHOS 分支、HarmonyOS 命令行工具、SDK、JDK、Node 和 `hvigor` 统一打进镜像中，
+它把 Flutter OHOS 分支、HarmonyOS 命令行工具、SDK、JDK、Node 和 `hvigor` ��一打进镜像中，
 让你可以用同一套环境在本地、GitHub Actions 或自托管 CI 中稳定构建 HarmonyOS 应用。
 
 ## 适合谁使用
@@ -100,14 +100,15 @@ docker run --rm -v "$PWD":/workspace \
 |---|---|
 | `bundle-name` | `ohos/AppScope/app.json5` 中的 `bundleName` |
 | `app-name` | 应用显示名称 |
-| `sign-enabled` | 是否写入签名配置 |
-| `sign-alg` | 签名算法 |
-| `sign-key-alias` | `.p12` key alias |
-| `sign-key-password` | alias 密码 |
-| `sign-store-password` | keystore 密码 |
-| `sign-cert-base64` | `.cer` 证书 Base64 |
-| `sign-profile-base64` | `.p7b` 配置文件 Base64 |
-| `sign-store-file-base64` | `.p12` keystore Base64 |
+| `ohos-sign-enabled` | 是否写入签名配置 |
+| `ohos-sign-alg` | 签名算法 |
+| `ohos-sign-key-alias` | `.p12` key alias |
+| `ohos-sign-key-password` | alias 密码 |
+| `ohos-sign-store-password` | keystore 密码 |
+| `ohos-sign-cert-base64` | `.cer` 证书 Base64 |
+| `ohos-sign-profile-base64` | `.p7b` 配置文件 Base64 |
+| `ohos-sign-store-file-base64` | `.p12` keystore Base64 |
+| `ohos-sign-material-base64` | DevEco 签名材料 zip Base64 |
 
 ## 发布签名示例
 
@@ -120,14 +121,15 @@ docker run --rm -v "$PWD":/workspace \
     app-name: 'flutter-ohos-app-template'
     build-mode: 'release'
     build-target: 'app'
-    sign-enabled: 'true'
-    sign-alg: ${{ secrets.OHOS_SIGN_ALG }}
-    sign-key-alias: ${{ secrets.OHOS_SIGN_KEY_ALIAS }}
-    sign-key-password: ${{ secrets.OHOS_SIGN_KEY_PASSWORD }}
-    sign-store-password: ${{ secrets.OHOS_SIGN_STORE_PASSWORD }}
-    sign-cert-base64: ${{ secrets.OHOS_SIGN_CERT_BASE64 }}
-    sign-profile-base64: ${{ secrets.OHOS_SIGN_PROFILE_BASE64 }}
-    sign-store-file-base64: ${{ secrets.OHOS_SIGN_STORE_FILE_BASE64 }}
+    ohos-sign-enabled: 'true'
+    ohos-sign-alg: ${{ secrets.OHOS_SIGN_ALG }}
+    ohos-sign-key-alias: ${{ secrets.OHOS_SIGN_KEY_ALIAS }}
+    ohos-sign-key-password: ${{ secrets.OHOS_SIGN_KEY_PASSWORD }}
+    ohos-sign-store-password: ${{ secrets.OHOS_SIGN_STORE_PASSWORD }}
+    ohos-sign-cert-base64: ${{ secrets.OHOS_SIGN_CERT_BASE64 }}
+    ohos-sign-profile-base64: ${{ secrets.OHOS_SIGN_PROFILE_BASE64 }}
+    ohos-sign-store-file-base64: ${{ secrets.OHOS_SIGN_STORE_FILE_BASE64 }}
+    ohos-sign-material-base64: ${{ secrets.OHOS_SIGN_MATERIAL_BASE64 }}
 ```
 
 ## 为什么这个项目值得用
