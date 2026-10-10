@@ -41,40 +41,40 @@ inputs:
   # Files (.cer / .p7b / .p12) are carried base64-encoded because repository
   # secrets hold text only. The builder decodes them into /tmp inside the
   # container and injects the absolute paths into build-profile.json5.
-  sign-enabled:
+  ohos-sign-enabled:
     description: 'Enable signing: true or false. Release builds cannot produce a package without it.'
     required: false
     default: 'false'
-  sign-alg:
+  ohos-sign-alg:
     description: 'signAlg, normally SHA256withECDSA'
     required: false
     default: 'SHA256withECDSA'
-  sign-key-alias:
+  ohos-sign-key-alias:
     description: 'keyAlias of the .p12 keystore'
     required: false
     default: ''
-  sign-key-password:
+  ohos-sign-key-password:
     description: 'keyPassword - the alias password inside the .p12'
     required: false
     default: ''
-  sign-store-password:
+  ohos-sign-store-password:
     description: 'storePassword - the .p12 keystore password'
     required: false
     default: ''
-  sign-cert-base64:
+  ohos-sign-cert-base64:
     description: 'AGC certificate (.cer) base64-encoded, single line, no line breaks'
     required: false
     default: ''
-  sign-profile-base64:
+  ohos-sign-profile-base64:
     description: 'Provisioning profile (.p7b) base64-encoded, single line, no line breaks'
     required: false
     default: ''
-  sign-store-file-base64:
+  ohos-sign-store-file-base64:
     description: 'Keystore (.p12) base64-encoded, single line, no line breaks'
     required: false
     default: ''
-  sign-material-base64:
-    description: 'ZIP of the DevEco signing material/ directory (the per-keystore files that sit next to the .p12 and are required to decrypt the encrypted keyPassword/storePassword), base64-encoded. Without it signing fails with ENOENT <dir>/material.'
+  ohos-sign-material-base64:
+    description: 'ZIP of the DevEco signing material/ directory (the per-keystore files that sit next to the .p12 and are required to decrypt the encrypted keyPassword/storePassword), base64-encoded, single line'
     required: false
     default: ''
 
@@ -104,21 +104,21 @@ runs:
     - ${{ inputs.bundle-name }}
     - '--app-name'
     - ${{ inputs.app-name }}
-    - '--sign-enabled'
-    - ${{ inputs.sign-enabled }}
-    - '--sign-alg'
-    - ${{ inputs.sign-alg }}
-    - '--sign-key-alias'
-    - ${{ inputs.sign-key-alias }}
-    - '--sign-key-password'
-    - ${{ inputs.sign-key-password }}
-    - '--sign-store-password'
-    - ${{ inputs.sign-store-password }}
-    - '--sign-cert-base64'
-    - ${{ inputs.sign-cert-base64 }}
-    - '--sign-profile-base64'
-    - ${{ inputs.sign-profile-base64 }}
-    - '--sign-store-file-base64'
-    - ${{ inputs.sign-store-file-base64 }}
-    - '--sign-material-base64'
-    - ${{ inputs.sign-material-base64 }}
+    - '--ohos-sign-enabled'
+    - ${{ inputs.ohos-sign-enabled }}
+    - '--ohos-sign-alg'
+    - ${{ inputs.ohos-sign-alg }}
+    - '--ohos-sign-key-alias'
+    - ${{ inputs.ohos-sign-key-alias }}
+    - '--ohos-sign-key-password'
+    - ${{ inputs.ohos-sign-key-password }}
+    - '--ohos-sign-store-password'
+    - ${{ inputs.ohos-sign-store-password }}
+    - '--ohos-sign-cert-base64'
+    - ${{ inputs.ohos-sign-cert-base64 }}
+    - '--ohos-sign-profile-base64'
+    - ${{ inputs.ohos-sign-profile-base64 }}
+    - '--ohos-sign-store-file-base64'
+    - ${{ inputs.ohos-sign-store-file-base64 }}
+    - '--ohos-sign-material-base64'
+    - ${{ inputs.ohos-sign-material-base64 }}
