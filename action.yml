@@ -19,7 +19,7 @@ inputs:
     required: false
     default: 'release'
   build-target:
-    description: 'Build target: hap or app'
+    description: 'Build target: hap, app or android'
     required: false
     default: 'app'
   project-path:
@@ -37,12 +37,9 @@ inputs:
     required: false
     default: ''
 
-  # ---- signing -------------------------------------------------------------
-  # Files (.cer / .p7b / .p12) are carried base64-encoded because repository
-  # secrets hold text only. The builder decodes them into /tmp inside the
-  # container and injects the absolute paths into build-profile.json5.
+  # ---- ohos signing --------------------------------------------------------
   ohos-sign-enabled:
-    description: 'Enable signing: true or false. Release builds cannot produce a package without it.'
+    description: 'Enable OHOS signing: true or false. Release builds cannot produce a package without it.'
     required: false
     default: 'false'
   ohos-sign-alg:
@@ -78,9 +75,31 @@ inputs:
     required: false
     default: ''
 
+  # ---- android signing ----------------------------------------------------
+  android-sign-enabled:
+    description: 'Enable Android signing for android builds: true or false (default false).'
+    required: false
+    default: 'false'
+  android-sign-key-alias:
+    description: 'Key alias inside the Android keystore (.jks or .keystore)'
+    required: false
+    default: ''
+  android-sign-key-password:
+    description: 'Key password (alias password) for the Android keystore'
+    required: false
+    default: ''
+  android-sign-store-base64:
+    description: 'Android keystore file (.jks/.keystore) base64-encoded, single line'
+    required: false
+    default: ''
+  android-sign-store-password:
+    description: 'Keystore password for the Android keystore'
+    required: false
+    default: ''
+
 outputs:
   artifact-path:
-    description: 'Path to the built .hap/.app artifact'
+    description: 'Path to the built .hap/.app/.apk artifact'
     value: ${{ steps.build.outputs.artifact-path }}
   build-log:
     description: 'Path to flutter-ohos-build.log, full output of the build'
@@ -104,6 +123,8 @@ runs:
     - ${{ inputs.bundle-name }}
     - '--app-name'
     - ${{ inputs.app-name }}
+
+    # OHOS signing
     - '--ohos-sign-enabled'
     - ${{ inputs.ohos-sign-enabled }}
     - '--ohos-sign-alg'
@@ -122,3 +143,15 @@ runs:
     - ${{ inputs.ohos-sign-store-file-base64 }}
     - '--ohos-sign-material-base64'
     - ${{ inputs.ohos-sign-material-base64 }}
+
+    # Android signing
+    - '--android-sign-enabled'
+    - ${{ inputs.android-sign-enabled }}
+    - '--android-sign-key-alias'
+    - ${{ inputs.android-sign-key-alias }}
+    - '--android-sign-key-password'
+    - ${{ inputs.android-sign-key-password }}
+    - '--android-sign-store-base64'
+    - ${{ inputs.android-sign-store-base64 }}
+    - '--android-sign-store-password'
+    - ${{ inputs.android-sign-store-password }}
