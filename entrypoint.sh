@@ -59,15 +59,15 @@ BUILD_TARGET="app"
 PROJECT_PATH="."
 BUNDLE_NAME=""
 APP_NAME=""
-SIGN_ENABLED="false"
-SIGN_ALG="SHA256withECDSA"
-SIGN_KEY_ALIAS=""
-SIGN_KEY_PASSWORD=""
-SIGN_STORE_PASSWORD=""
-SIGN_CERT_BASE64=""
-SIGN_PROFILE_BASE64=""
-SIGN_STORE_BASE64=""
-SIGN_MATERIAL_BASE64=""
+OHOS_SIGN_ENABLED="false"
+OHOS_SIGN_ALG="SHA256withECDSA"
+OHOS_SIGN_KEY_ALIAS=""
+OHOS_SIGN_KEY_PASSWORD=""
+OHOS_SIGN_STORE_PASSWORD=""
+OHOS_SIGN_CERT_BASE64=""
+OHOS_SIGN_PROFILE_BASE64=""
+OHOS_SIGN_STORE_FILE_BASE64=""
+OHOS_SIGN_MATERIAL_BASE64=""
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -78,18 +78,21 @@ while [[ $# -gt 0 ]]; do
         --project-path) PROJECT_PATH="$2"; shift 2;;
         --bundle-name) BUNDLE_NAME="$2"; shift 2;;
         --app-name) APP_NAME="$2"; shift 2;;
-        --sign-enabled) SIGN_ENABLED="$2"; shift 2;;
-        --sign-alg) SIGN_ALG="$2"; shift 2;;
-        --sign-key-alias) SIGN_KEY_ALIAS="$2"; shift 2;;
-        --sign-key-password) SIGN_KEY_PASSWORD="$2"; shift 2;;
-        --sign-store-password) SIGN_STORE_PASSWORD="$2"; shift 2;;
-        --sign-cert-base64) SIGN_CERT_BASE64="$2"; shift 2;;
-        --sign-profile-base64) SIGN_PROFILE_BASE64="$2"; shift 2;;
-        --sign-store-file-base64) SIGN_STORE_BASE64="$2"; shift 2;;
-        --sign-material-base64) SIGN_MATERIAL_BASE64="$2"; shift 2;;
+        --ohos-sign-enabled) OHOS_SIGN_ENABLED="$2"; shift 2;;
+        --ohos-sign-alg) OHOS_SIGN_ALG="$2"; shift 2;;
+        --ohos-sign-key-alias) OHOS_SIGN_KEY_ALIAS="$2"; shift 2;;
+        --ohos-sign-key-password) OHOS_SIGN_KEY_PASSWORD="$2"; shift 2;;
+        --ohos-sign-store-password) OHOS_SIGN_STORE_PASSWORD="$2"; shift 2;;
+        --ohos-sign-cert-base64) OHOS_SIGN_CERT_BASE64="$2"; shift 2;;
+        --ohos-sign-profile-base64) OHOS_SIGN_PROFILE_BASE64="$2"; shift 2;;
+        --ohos-sign-store-file-base64) OHOS_SIGN_STORE_FILE_BASE64="$2"; shift 2;;
+        --ohos-sign-material-base64) OHOS_SIGN_MATERIAL_BASE64="$2"; shift 2;;
         *) echo "Unknown arg: $1"; exit 1;;
     esac
 done
+
+# Back-compat aliases for older sign-* names are intentionally removed to enforce
+# the new naming scheme consistently across the repository.
 
 # Never let the credentials reach the log, even by accident: report their length only.
 mask_len() { local v="${1:-}"; echo "${#v} characters"; }
@@ -111,16 +114,16 @@ echo "Build target: ${BUILD_TARGET}"
 echo "Project path: ${PROJECT_PATH}"
 echo "bundleName: ${BUNDLE_NAME:-(not set - keep whatever flutter create generated)}"
 echo "appName: ${APP_NAME:-(not set)}"
-echo "Signing enabled: ${SIGN_ENABLED}"
-if [[ "${SIGN_ENABLED}" == "true" ]]; then
-    echo "  signAlg: ${SIGN_ALG}"
-    echo "  keyAlias: ${SIGN_KEY_ALIAS}"
-    echo "  keyPassword: $(mask_len "${SIGN_KEY_PASSWORD}")"
-    echo "  storePassword: $(mask_len "${SIGN_STORE_PASSWORD}")"
-    echo "  cert (.cer) base64: $(mask_len "${SIGN_CERT_BASE64}")"
-    echo "  profile (.p7b) base64: $(mask_len "${SIGN_PROFILE_BASE64}")"
-    echo "  keystore (.p12) base64: $(mask_len "${SIGN_STORE_BASE64}")"
-    echo "  sign material zip base64: $(mask_len "${SIGN_MATERIAL_BASE64}")"
+echo "Signing enabled: ${OHOS_SIGN_ENABLED}"
+if [[ "${OHOS_SIGN_ENABLED}" == "true" ]]; then
+    echo "  signAlg: ${OHOS_SIGN_ALG}"
+    echo "  keyAlias: ${OHOS_SIGN_KEY_ALIAS}"
+    echo "  keyPassword: $(mask_len "${OHOS_SIGN_KEY_PASSWORD}")"
+    echo "  storePassword: $(mask_len "${OHOS_SIGN_STORE_PASSWORD}")"
+    echo "  cert (.cer) base64: $(mask_len "${OHOS_SIGN_CERT_BASE64}")"
+    echo "  profile (.p7b) base64: $(mask_len "${OHOS_SIGN_PROFILE_BASE64}")"
+    echo "  keystore (.p12) base64: $(mask_len "${OHOS_SIGN_STORE_FILE_BASE64}")"
+    echo "  sign material zip base64: $(mask_len "${OHOS_SIGN_MATERIAL_BASE64}")"
 fi
 echo "Workspace: ${WORKSPACE_DIR}"
 echo "Log file: ${LOG_FILE}"
@@ -155,10 +158,6 @@ fi
 flutter pub get
 
 # Step 2.2: App identity
-#
-# bundleName matters twice over: it is the app's identity on device, and the .p7b
-# provisioning profile is issued against exactly one bundleName. If the two differ,
-# hvigor refuses to sign, so when signing is on we make sure the override happened.
 APP_JSON="ohos/AppScope/app.json5"
 if [[ -n "${BUNDLE_NAME}" ]]; then
     echo "[2.2/4] Setting bundleName -> ${BUNDLE_NAME}"
@@ -175,8 +174,6 @@ APP_SCOPE_STRINGS="ohos/AppScope/resources/base/element/string.json"
 if [[ -n "${APP_NAME}" ]]; then
     echo "[2.2/4] Setting app name -> ${APP_NAME}"
     if [[ -f "${APP_SCOPE_STRINGS}" ]]; then
-        # Anchor on the "app_name" entry instead of smashing every "value" in the file,
-        # in case AppScope ever carries more than one string resource.
         perl -0777 -i -pe "s/(\"name\"\s*:\s*\"app_name\"[\s\S]*?\"value\"\s*:\s*\")[^\"]*(\")/\${1}${APP_NAME}\${2}/g" "${APP_SCOPE_STRINGS}"
     else
         echo "WARNING: ${APP_SCOPE_STRINGS} not found; app name left untouched."
@@ -185,7 +182,7 @@ if [[ -n "${APP_NAME}" ]]; then
     cat "${APP_SCOPE_STRINGS}"
 fi
 
-if [[ "${SIGN_ENABLED}" == "true" ]] && [[ -z "${BUNDLE_NAME}" ]]; then
+if [[ "${OHOS_SIGN_ENABLED}" == "true" ]] && [[ -z "${BUNDLE_NAME}" ]]; then
     echo "[2.2/4] WARNING: signing is enabled but no bundle-name was supplied."
     echo "         The generated bundleName is whatever flutter create produced"
     echo "         (derived from the project name) - it must match your .p7b."
@@ -194,22 +191,9 @@ if [[ "${SIGN_ENABLED}" == "true" ]] && [[ -z "${BUNDLE_NAME}" ]]; then
 fi
 
 # Step 2.5: Pin compileSdkVersion to the SDK embedded in this image.
-#
-# The upstream ReleaseNote for 3.41.9/3.41.10-ohos-1.0.1 requires the app to be
-# COMPILED against SDK 26.0.0 ("应用编译最低 SDK 26.0.0"), while only its runtime
-# floor stays at 5.0.5(17) ("应用运行最低 SDK"). flutter create emits
-# build-profile.json5 with compatibleSdkVersion only - no compileSdkVersion - so
-# hvigor falls back to whatever the local SDK advertises. Compiling against an
-# older SDK (5.1.0.x -> apiVersion 18) blows up in CompileArkTS, because the
-# prebuilt Flutter engine har references API-26 symbols:
-#     Namespace 'autoFillManager' has no exported member 'AutoFillType'
-#
-# We read the version straight out of the embedded SDK rather than hardcoding it,
-# so the image and the generated project can never drift apart.
 BUILD_PROFILE="ohos/build-profile.json5"
 if [[ -f "${BUILD_PROFILE}" ]]; then
-    COMPILE_SDK="$(jq -r '.data.platformVersion // empty' \
-        "${DEVECO_SDK_HOME:-/opt/ohos-sdk/sdk}/default/sdk-pkg.json" 2>/dev/null || true)"
+    COMPILE_SDK="$(jq -r '.data.platformVersion // empty' "${DEVECO_SDK_HOME:-/opt/ohos-sdk/sdk}/default/sdk-pkg.json" 2>/dev/null || true)"
     if [[ -n "${COMPILE_SDK}" ]]; then
         if grep -q 'compileSdkVersion' "${BUILD_PROFILE}"; then
             echo "[2.5/4] compileSdkVersion already present in ${BUILD_PROFILE}, leaving it alone."
@@ -228,16 +212,8 @@ else
 fi
 
 # Step 2.7: Signing material
-#
-# `flutter create` emits ohos/build-profile.json5 with an EMPTY signingConfigs array
-# while the product still declares `"signingConfig": "default"` - so any release build
-# dies with "signingConfig is not configured" unless the array is filled in.
-#
-# The three files arrive base64-encoded (repository secrets are text-only) and are
-# decoded under /tmp *inside the container*, so they never land in the mounted
-# workspace and disappear when the container exits.
 SIGN_DIR="/tmp/ohos-sign"
-if [[ "${SIGN_ENABLED}" == "true" ]]; then
+if [[ "${OHOS_SIGN_ENABLED}" == "true" ]]; then
     echo "[2.7/4] Writing signing material..."
     rm -rf "${SIGN_DIR}"
     mkdir -p "${SIGN_DIR}"
@@ -245,7 +221,7 @@ if [[ "${SIGN_ENABLED}" == "true" ]]; then
     write_material() {
         local label="$1" dest="$2" payload="$3"
         if [[ -z "${payload}" ]]; then
-            echo "ERROR: ${label} is empty - supply it through the corresponding sign-* input."
+            echo "ERROR: ${label} is empty - supply it through the corresponding ohos-sign-* input."
             return 1
         fi
         printf '%s' "${payload}" | base64 -d > "${dest}" \
@@ -259,24 +235,16 @@ if [[ "${SIGN_ENABLED}" == "true" ]]; then
         fi
     }
 
-    write_material "cert (.cer)"      "${SIGN_DIR}/app.cer" "${SIGN_CERT_BASE64}"
-    write_material "profile (.p7b)"   "${SIGN_DIR}/app.p7b" "${SIGN_PROFILE_BASE64}"
-    write_material "keystore (.p12)"  "${SIGN_DIR}/app.p12" "${SIGN_STORE_BASE64}"
+    write_material "cert (.cer)"      "${SIGN_DIR}/app.cer" "${OHOS_SIGN_CERT_BASE64}"
+    write_material "profile (.p7b)"   "${SIGN_DIR}/app.p7b" "${OHOS_SIGN_PROFILE_BASE64}"
+    write_material "keystore (.p12)"  "${SIGN_DIR}/app.p12" "${OHOS_SIGN_STORE_FILE_BASE64}"
 
-    # Signing MATERIAL: DevEco encrypts keyPassword/storePassword into the
-    # "00000018..." hex blobs with a RANDOM per-keystore material set that it
-    # drops NEXT TO the .p12 (material/fd/{0,1,2}, material/ac, material/ce).
-    # hvigor's DecipherUtil.decryptPwd() stats "<p12 dir>/material" and XORs the
-    # blobs against those files - without them SignHap dies with
-    # "ENOENT ... stat '<sign dir>/material'" (Error Code 00308018). The set
-    # arrives as a zip of the material/ directory, base64-encoded in a secret.
-    if [[ -z "${SIGN_MATERIAL_BASE64}" ]]; then
-        echo "ERROR: sign material is missing - supply it through the sign-material-base64 input."
-        echo "       DevEco-encrypted passwords cannot be decrypted without the material/"
-        echo "       directory that sits next to the .p12 on the machine that encrypted them."
+    if [[ -z "${OHOS_SIGN_MATERIAL_BASE64}" ]]; then
+        echo "ERROR: sign material is missing - supply it through the ohos-sign-material-base64 input."
+        echo "       DevEco-encrypted passwords cannot be decrypted without the material/ directory that sits next to the .p12 on the machine that encrypted them."
         exit 1
     fi
-    printf '%s' "${SIGN_MATERIAL_BASE64}" | base64 -d > "${SIGN_DIR}/material.zip" \
+    printf '%s' "${OHOS_SIGN_MATERIAL_BASE64}" | base64 -d > "${SIGN_DIR}/material.zip" \
         || { echo "ERROR: sign material is not valid base64."; exit 1; }
     unzip -o -q "${SIGN_DIR}/material.zip" -d "${SIGN_DIR}" \
         || { echo "ERROR: sign material is not a valid zip (expected a material/ dir at the root)."; exit 1; }
@@ -294,12 +262,6 @@ if [[ "${SIGN_ENABLED}" == "true" ]]; then
     if grep -q '"certpath"' "${BUILD_PROFILE}"; then
         echo "[2.7/4] signingConfigs already populated in ${BUILD_PROFILE}, leaving it as-is."
     else
-        # The anchor consumes the template's trailing comma as well: the heredoc
-        # block always ends with a newline, so a comma left behind by the anchor
-        # would start a line of its own and hvigor would die on
-        # "JSON5: invalid character ','". The block therefore ends with "],"
-        # (it replaces the comma too). The /? keeps the regex working even if a
-        # template ever emits the array as the last key without a comma.
         cat > "${SIGN_DIR}/signing_block.txt" <<EOB
     "signingConfigs": [
       {
@@ -307,12 +269,12 @@ if [[ "${SIGN_ENABLED}" == "true" ]]; then
         "type": "HarmonyOS",
         "material": {
           "certpath": "${SIGN_DIR}/app.cer",
-          "keyAlias": "${SIGN_KEY_ALIAS}",
-          "keyPassword": "${SIGN_KEY_PASSWORD}",
+          "keyAlias": "${OHOS_SIGN_KEY_ALIAS}",
+          "keyPassword": "${OHOS_SIGN_KEY_PASSWORD}",
           "profile": "${SIGN_DIR}/app.p7b",
-          "signAlg": "${SIGN_ALG}",
+          "signAlg": "${OHOS_SIGN_ALG}",
           "storeFile": "${SIGN_DIR}/app.p12",
-          "storePassword": "${SIGN_STORE_PASSWORD}"
+          "storePassword": "${OHOS_SIGN_STORE_PASSWORD}"
         }
       }
     ],
@@ -321,8 +283,6 @@ EOB
         perl -0777 -i -pe '
             BEGIN { local $/; open my $fh, "<", $ENV{SIGN_BLOCK_FILE}
                     or die "cannot read signing block: $!"; $SIGN_BLOCK = <$fh>; }
-            # /e makes the replacement an expression, so characters like $ or \
-            # inside a password are inserted literally instead of being interpreted.
             s/"signingConfigs"\s*:\s*\[\]\s*,?/$SIGN_BLOCK/e;
         ' "${BUILD_PROFILE}"
 
@@ -336,9 +296,6 @@ EOB
             exit 1
         fi
 
-        # Guard against any injection malformation (e.g. a line containing only
-        # a comma), which hvigor reports minutes later as
-        # "JSON5: invalid character ','". Fail here, at the injection site.
         if grep -qE '^[[:space:]]*,[[:space:]]*$' "${BUILD_PROFILE}"; then
             echo "ERROR: ${BUILD_PROFILE} contains a stray comma line - injection malformed the JSON5."
             echo "----- ${BUILD_PROFILE} -----"
@@ -353,17 +310,12 @@ else
     if [[ "${BUILD_MODE}" == "release" ]]; then
         echo "[2.7/4] WARNING: release build WITHOUT signing configuration."
         echo "         hvigor cannot produce a signed ${BUILD_TARGET} unless signingConfigs is filled in."
-        echo "         Either pass the sign-* inputs, or build with --build-mode debug."
+        echo "         Either pass the ohos-sign-* inputs, or build with --build-mode debug."
     fi
 fi
 
 # Step 3: Build
 echo "[3/4] Building ${BUILD_TARGET} (${BUILD_MODE})..."
-# `< /dev/null`: the OHOS fork prints a "please configure debug signing in DevEco
-# Studio" notice and then READS STDIN. Under a GitHub Actions docker step stdin is
-# an open pipe that never closes, so the build waits forever (observed: 87 min hang
-# until manual cancel). Closing stdin makes it hit EOF and continue - the unsigned
-# hap is still produced (verified in builder selftest).
 if [[ "${BUILD_TARGET}" == "app" ]]; then
     flutter build app --"${BUILD_MODE}" < /dev/null
     FLUTTER_RC=$?
@@ -378,8 +330,6 @@ else
 fi
 echo "[3/4] flutter build exited with code ${FLUTTER_RC}"
 
-# Step 3.5: the credential files have served their purpose - remove them even though
-# /tmp is inside the (ephemeral) container rather than the mounted workspace.
 rm -rf "${SIGN_DIR}"
 
 # Step 4: Locate and report artifact
@@ -392,10 +342,6 @@ if [[ -z "${ARTIFACT_PATH}" ]]; then
     exit 1
 fi
 
-# Release builds demand a clean exit (a signed package must come out of a clean
-# run). In DEBUG mode a non-zero exit is expected when no signing config exists:
-# the OHOS fork's checkOhosSignedInfo throws toolExit AFTER hvigor's assembleHap
-# has already produced the unsigned package - the artifact on disk is the truth.
 if [[ "${BUILD_MODE}" == "release" && "${FLUTTER_RC}" != "0" ]]; then
     echo "ERROR: release build exited with code ${FLUTTER_RC}; refusing to report success."
     exit "${FLUTTER_RC}"
@@ -415,5 +361,4 @@ if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
     echo "artifact-path=${ARTIFACT_PATH}" >> "${GITHUB_OUTPUT}"
     echo "build-log=${LOG_FILE}" >> "${GITHUB_OUTPUT}"
 fi
-# `tee` runs in a subshell; make sure it has drained before the container exits.
 sync || true
