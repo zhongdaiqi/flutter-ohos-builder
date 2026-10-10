@@ -3,50 +3,16 @@
 [中文](./README.zh-CN.md) | [English](./README.md)
 
 > GitHub Action that builds Flutter apps into HarmonyOS `.hap` / `.app` packages.
-> Also usable as a plain Docker image for local or self-hosted CI.
+> Also works as a Docker image for local or self-hosted CI.
 
 [![Self-test](https://github.com/zhongdaiqi/flutter-ohos-builder/actions/workflows/selftest.yml/badge.svg)](https://github.com/zhongdaiqi/flutter-ohos-builder/actions/workflows/selftest.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-The HarmonyOS **Command Line Tools + SDK are baked into the image**, so a build never
-downloads gigabytes at run time — clone your project, run the action, get a signed-ready
-artifact.
+This project bundles the HarmonyOS command line tools and SDK directly into the image, so builds do not download large toolchains at runtime.
 
-## Version pairing (read this first)
+## Quick start
 
-The Flutter OHOS fork and the HarmonyOS SDK are **not** independently versionable. Each
-Flutter fork release pins its own mandatory toolchain, and mixing them fails deep inside
-`hvigor` with errors that do not mention the real cause.
-
-This image currently ships this combination:
-
-| Component | Version | Source |
-|---|---|---|
-| Flutter OHOS fork | `3.41.10-ohos-1.0.1` | [zhongdaiqi/flutter_flutter](https://github.com/zhongdaiqi/flutter_flutter) |
-| Command Line Tools | **26.0.0 Release** (`clt-26.0.0.851`) | [zhongdaiqi/command-line-tools-for-hmos](https://github.com/zhongdaiqi/command-line-tools-for-hmos) |
-| SDK | apiVersion **26** / platformVersion 26.0.0 | included in the CLT above |
-| hvigor | 6.26.8 | included in the CLT above |
-| JDK | 17 (Temurin) | Adoptium |
-| Node | 18.20.1 | nodejs.org |
-
-Which comes straight from the upstream ReleaseNote bundled with the fork
-(`release-notes/Flutter 3.41.9-ohos 1.0.1 ReleaseNote.md`, i.e. tag `3.41.10-ohos-1.0.1`):
-
-| Requirement | Value | Where it goes |
-|---|---|---|
-| Command Line Tools | 26.0.0 Release | this image |
-| SDK for building the engine | 26.0.0 | this image |
-| SDK for building the app **(compile)** | **26.0.0** | `ohos/build-profile.json5` → `compileSdkVersion` |
-| SDK for running the app (floor) | 5.0.5(17) | `ohos/build-profile.json5` → `compatibleSdkVersion` |
-
-> Note the asymmetry that trips people up: the app must be **compiled** against SDK 26
-> while only needing to **run** on 5.0.5(17). `flutter create` emits only
-> `compatibleSdkVersion`, so this action injects `compileSdkVersion` for you — read
-> from the embedded SDK, never hardcoded.
-
-## Quick Start
-
-### GitHub Actions
+### GitHub Action
 
 ```yaml
 steps:
@@ -69,97 +35,61 @@ docker run --rm -v "$PWD":/workspace \
   --build-mode release --build-target app
 ```
 
+## Version pairing
+
+The Flutter OHOS fork and HarmonyOS SDK are version-coupled; mixing incompatible versions fails deep in `hvigor`.
+
+| Component | Version |
+|---|---|
+| Flutter OHOS fork | `3.41.10-ohos-1.0.1` |
+| Command Line Tools | `26.0.0 Release` |
+| SDK | `26.0.0` |
+| hvigor | `6.26.8` |
+| JDK | `17` |
+| Node | `18.20.1` |
+
+Key rule: app compilation must use `compileSdkVersion=26`, while runtime compatibility can stay at `5.0.5(17)`.
+
 ## Inputs
 
 | Input | Description | Default |
 |---|---|---|
-| `flutter-version` | Flutter OHOS fork version (a tag of `zhongdaiqi/flutter_flutter`) | `3.41.10-ohos-1.0.1` |
+| `flutter-version` | Flutter OHOS fork tag | `3.41.10-ohos-1.0.1` |
 | `ohos-api` | HarmonyOS API level baked into the image | `26` |
 | `build-mode` | `debug` or `release` | `release` |
 | `build-target` | `hap` or `app` | `app` |
-| `project-path` | Path to the Flutter project root | `.` |
-| `bundle-name` | `bundleName` written into `ohos/AppScope/app.json5`. Must equal the bundle name your `.p7b` profile was issued for. | *(empty = keep whatever `flutter create` generated)* |
-| `app-name` | Display name written into `ohos/AppScope/resources/base/element/string.json` | *(empty)* |
-| `sign-enabled` | `true` to fill `signingConfigs` in `build-profile.json5`. Required for `release`. | `false` |
-| `sign-alg` | `signAlg` | `SHA256withECDSA` |
-| `sign-key-alias` | `keyAlias` inside the `.p12` keystore | *(empty)* |
-| `sign-key-password` | `keyPassword` — alias password inside the `.p12` | *(empty)* |
-| `sign-store-password` | `storePassword` — keystore password of the `.p12` | *(empty)* |
-| `sign-cert-base64` | AGC certificate `.cer`, base64-encoded, single line | *(empty)* |
-| `sign-profile-base64` | Provisioning profile `.p7b`, base64-encoded, single line | *(empty)* |
-| `sign-store-file-base64` | Keystore `.p12`, base64-encoded, single line | *(empty)* |
-
-## Outputs
-
-| Output | Description |
-|---|---|
-| `artifact-path` | Path to the built `.hap` / `.app` |
+| `project-path` | Flutter project root | `.` |
+| `bundle-name` | `bundleName` in `ohos/AppScope/app.json5` | empty |
+| `app-name` | App display name | empty |
+| `sign-enabled` | Whether to fill `signingConfigs` | `false` |
+| `sign-alg` | Signing algorithm | `SHA256withECDSA` |
+| `sign-key-alias` | Key alias in the `.p12` keystore | empty |
+| `sign-key-password` | Alias password | empty |
+| `sign-store-password` | Keystore password | empty |
+| `sign-cert-base64` | `.cer` file in base64 | empty |
+| `sign-profile-base64` | `.p7b` profile in base64 | empty |
+| `sign-store-file-base64` | `.p12` keystore in base64 | empty |
 
 ## How it works
 
-1. Uses the Flutter OHOS fork, which adds the `ohos` platform plus `flutter build hap` / `flutter build app`.
-2. Runs `flutter create --platforms=ohos` if the checked-out project has no `ohos/` directory yet.
+1. Uses the Flutter OHOS fork that adds the `ohos` platform.
+2. Runs `flutter create --platforms=ohos` if needed.
 3. Runs `flutter pub get`.
-4. Injects `compileSdkVersion` into `ohos/build-profile.json5` to match the embedded SDK.
+4. Injects `compileSdkVersion` into `ohos/build-profile.json5`.
 5. Runs `flutter build hap|app --<mode>` and reports the artifact path.
 
-## Signing a release package
+## Release signing
 
-`flutter create` emits `ohos/build-profile.json5` with an **empty** `signingConfigs`
-array while the product still declares `"signingConfig": "default"`. So a `release`
-build cannot produce a `.hap` / `.app` at all until that array is filled in.
+`flutter create` often leaves `signingConfigs` empty while the app still declares `"signingConfig": "default"`, so a `release` build will fail unless the signing config is filled.
 
-Repository secrets hold text only, so the two certificates and the keystore travel as
-base64. The builder decodes them to `/tmp` **inside the container** and writes the
-absolute paths into `build-profile.json5`:
-
-```
-certpath     /tmp/ohos-sign/app.cer     <-- sign-cert-base64
-profile      /tmp/ohos-sign/app.p7b     <-- sign-profile-base64
-storeFile    /tmp/ohos-sign/app.p12     <-- sign-store-file-base64
-```
-
-Nothing is written into the mounted workspace and the container is discarded after the
-step, so the material does not survive the job. Passwords are never echoed — the log
-only reports their character count, and the dumped `build-profile.json5` has
-`keyPassword` / `storePassword` replaced by `******`.
-
-### 1. Encode the three files (PowerShell, Windows)
-
-```powershell
-$b64 = [Convert]::ToBase64String([IO.File]::ReadAllBytes("D:\ohsFlutter\cert\tusn.p12"))
-[IO.File]::WriteAllText("D:\ohsFlutter\cert\tusn.p12.b64", $b64)
-```
-
-Repeat for the `.cer` and the `.p7b`. Each `.b64` file is **one single line** with no
-line breaks and no trailing newline — copy it out with Notepad and trim any whitespace.
-
-### 2. Add repository secrets
-
-Settings → Secrets and variables → Actions → New repository secret:
-
-| Secret | Value |
-|---|---|
-| `OHOS_SIGN_KEY_ALIAS` | keystore alias, e.g. `tuyun` |
-| `OHOS_SIGN_KEY_PASSWORD` | alias password inside the `.p12` |
-| `OHOS_SIGN_STORE_PASSWORD` | keystore password of the `.p12` |
-| `OHOS_SIGN_ALG` | `SHA256withECDSA` |
-| `OHOS_SIGN_CERT_BASE64` | contents of `<cert>.cer.b64` |
-| `OHOS_SIGN_PROFILE_BASE64` | contents of `<profile>.p7b.b64` |
-| `OHOS_SIGN_STORE_FILE_BASE64` | contents of `<keystore>.p12.b64` |
-
-Each secret must stay well under GitHub's ~48 KB limit; these files normally encode to
-2–10 KB. If a value ever exceeds it, split the base64 across several secrets and
-concatenate them in the step that feeds the action.
-
-### 3. Use them
+The action accepts base64-encoded signing files and writes them to `/tmp` inside the container before generating `build-profile.json5`.
 
 ```yaml
 - uses: zhongdaiqi/flutter-ohos-builder@main
   with:
     flutter-version: '3.41.10-ohos-1.0.1'
     ohos-api: '26'
-    bundle-name: 'com.zhongdaiqi.app'      # MUST match the .p7b
+    bundle-name: 'com.zhongdaiqi.app'
     app-name: 'flutter-ohos-app-template'
     build-mode: 'release'
     build-target: 'app'
@@ -173,42 +103,13 @@ concatenate them in the step that feeds the action.
     sign-store-file-base64: ${{ secrets.OHOS_SIGN_STORE_FILE_BASE64 }}
 ```
 
-`bundle-name` is not cosmetic: the provisioning profile is issued against one exact
-bundle name, and hvigor refuses to sign if `ohos/AppScope/app.json5` disagrees.
-
-### What does NOT go into secrets
-
-| Item | Where it actually belongs |
-|---|---|
-| App name (`flutter-ohos-app-template`) | `app-name` input → `AppScope/resources/base/element/string.json` |
-| Bundle name (`com.zhongdaiqi.app`) | `bundle-name` input → `AppScope/app.json5`. Public metadata, not a secret. |
-| APP ID (`6917618631485252007`) | AppGallery Connect's own app identifier. Not needed to sign; only needed later to call the AGC publishing API. Store it as a repository **variable**, not a secret. |
-
 ## Troubleshooting
 
-**`CompileArkTS` fails with errors about missing ArkTS symbols**, e.g.
-
-```
-Namespace 'autoFillManager' has no exported member 'AutoFillType'
-```
-
-You are compiling against a SDK older than the one the fork's prebuilt engine expects.
-Those symbols (`AutoFillType`, `AutoFillTriggerType`, `FillRequest`, `FillFailureResult`,
-`CompetitionStrategy`, `getGlobalWindowMode`, …) only exist **from apiVersion 26** — the
-fork release that introduced them lists "支持密码保险箱功能" (password vault / autofill)
-among its new features.
-
-Fix: use a Command Line Tools 26.0.0-based image and make sure `compileSdkVersion` is
-`26.0.0`. Do **not** "solve" it by pinning an older SDK to match the template's
-`compatibleSdkVersion` — that number is a runtime floor, not the compile SDK.
+If `CompileArkTS` fails with missing ArkTS symbols, the usual cause is a mismatched SDK version. Use the `26.0.0` toolchain and keep `compileSdkVersion` at `26.0.0`.
 
 ## Disclaimer
 
-This project is an independent community open-source tool for building HarmonyOS
-applications with Flutter. It has no affiliation with or endorsement by Huawei
-Technologies Co., Ltd. or the OpenAtom Foundation. "Flutter" is a trademark of Google
-LLC; this project uses a community-adapted version. Command Line Tools are redistributed
-from Huawei's official download and remain subject to their own licence terms.
+This project is an independent community tool for building HarmonyOS applications with Flutter. It is not affiliated with Huawei Technologies Co., Ltd. or the OpenAtom Foundation.
 
 ## License
 
