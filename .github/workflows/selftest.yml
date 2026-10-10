@@ -41,7 +41,7 @@ jobs:
           grep -c 'FROM ubuntu' Dockerfile > /dev/null && echo 'Dockerfile: has FROM'
           grep -c 'ENTRYPOINT' Dockerfile > /dev/null && echo 'Dockerfile: has ENTRYPOINT'
           grep -c 'command-line-tools-for-hmos' Dockerfile > /dev/null && echo 'Dockerfile: downloads HarmonyOS Command Line Tools'
-          grep -c 'clt-5.1.0.849' Dockerfile > /dev/null && echo 'Dockerfile: pinned to clt-5.1.0.849'
+          grep -c 'clt-26.0.0.851' Dockerfile > /dev/null && echo 'Dockerfile: pinned to clt-26.0.0.851'
           grep -c '3.41.10-ohos-1.0.1' Dockerfile > /dev/null && echo 'Dockerfile: pinned to flutter 3.41.10-ohos-1.0.1'
 
       - name: List all files
