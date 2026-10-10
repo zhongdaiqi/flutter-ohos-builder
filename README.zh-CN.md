@@ -2,33 +2,60 @@
 
 [中文](./README.zh-CN.md) | [English](./README.md)
 
-> GitHub Action + Docker 镜像，用于将 Flutter 应用构建为 HarmonyOS `.hap` / `.app` 包。
+> Flutter HarmonyOS 打包构建工具
+> GitHub Action + Docker 镜像，帮助你快速把 Flutter 应用构建成 HarmonyOS `.hap` / `.app`。
 
 [![Self-test](https://github.com/zhongdaiqi/flutter-ohos-builder/actions/workflows/selftest.yml/badge.svg)](https://github.com/zhongdaiqi/flutter-ohos-builder/actions/workflows/selftest.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-`flutter-ohos-builder` 旨在消除 HarmonyOS 构建环境搭建的繁琐步骤。
-它会把所需的 Flutter OHOS fork、HarmonyOS Command Line Tools、SDK、JDK、Node 与 `hvigor` 一并打进镜像中，因此无需在 CI 运行阶段再次下载大量工具链。
+如果你在做 Flutter + HarmonyOS 应用开发，最头疼的往往不是代码本身，而是环境和工具链不一致：
 
-## 这个项目解决什么问题
+- Flutter OHOS 分支版本不匹配
+- HarmonyOS SDK / Command Line Tools 版本不兼容
+- `compileSdkVersion` 和 `compatibleSdkVersion` 混用
+- 发布包签名配置缺失
+- CI/CD 中无法稳定复现构建环境
 
-并不是只运行 `flutter build` 就能完成 HarmonyOS 打包；它需要一个完整且严格匹配的链路：
+`flutter-ohos-builder` 就是为了解决这些问题而设计的。
 
-- 对应版本的 Flutter OHOS fork
-- 正确的 HarmonyOS SDK 和命令行工具
-- 匹配的编译 SDK 版本
-- 合法的发布签名��置
+它把 Flutter OHOS 分支、HarmonyOS 命令行工具、SDK、JDK、Node 和 `hvigor` 统一打进镜像中，
+让你可以用同一套环境在本地、GitHub Actions 或自托管 CI 中稳定构建 HarmonyOS 应用。
 
-这个项目的目标，就是让这些内容稳定、可复现，并能在 GitHub Actions 与本地 Docker 中统一执行。
+## 适合谁使用
 
-## 亮点
+- 需要把 Flutter 应用打包成 HarmonyOS `.hap` / `.app` 的开发者
+- 想在 GitHub Actions 中实现持续构建的团队
+- 希望构建环境可复现、版本稳定、部署简单的工程师
+- 需要在本地或私有 CI 中快速做签名构建和验证的人
 
-- 开箱即用的 GitHub Action
-- 可用作普通 Docker 镜像，适合本地和自托管 CI
-- 将工具链直接内置到镜像中，避免运行期下载
-- 自动注入所需的 `compileSdkVersion`
-- 支持 Base64 证书资产进行发布签名
-- 明确暴露版本依赖，便于核验和维护
+## 核心优势
+
+- 一键式 GitHub Action
+- 本地 Docker 可直接运行
+- 内置完整 HarmonyOS 构建工具链
+- 自动处理 `compileSdkVersion` 注入
+- 支持发布签名所需的 Base64 证书资产
+- 版本关系清晰，便于维护和排查
+
+## 版本说明
+
+当前默认使用的组合是：
+
+| 组件 | 版本 |
+|---|---|
+| Flutter OHOS fork | `3.41.10-ohos-1.0.1` |
+| Command Line Tools | `26.0.0 Release` |
+| SDK | `26.0.0` |
+| hvigor | `6.26.8` |
+| JDK | `17` |
+| Node | `18.20.1` |
+
+最关键的一点是：
+
+- 应用编译必须使用 `compileSdkVersion = 26`
+- 运行时兼容可以保留 `compatibleSdkVersion = 5.0.5(17)`
+
+这也是本项目自动注入编译 SDK 的原因。
 
 ## 快速开始
 
@@ -55,59 +82,34 @@ docker run --rm -v "$PWD":/workspace \
   --build-mode release --build-target app
 ```
 
-## 版本匹配
+## 使用方式
 
-Flutter OHOS 分支与 HarmonyOS SDK 是强绑定关系；混用不兼容版本时，`hvigor` 往往会在深层失败，且错误信息经常会误导排查。
+### 基础参数
 
-| 组件 | 版本 |
-|---|---|
-| Flutter OHOS fork | `3.41.10-ohos-1.0.1` |
-| Command Line Tools | `26.0.0 Release` |
-| SDK | `26.0.0` |
-| hvigor | `6.26.8` |
-| JDK | `17` |
-| Node | `18.20.1` |
-
-关键规则：
-
-- 编译 SDK 必须为 `26.0.0`
-- 运行时兼容版本可以保留在 `5.0.5(17)`
-
-这也是为什么本 Action 会自动为 `ohos/build-profile.json5` 注入 `compileSdkVersion`。
-
-## 输入参数
-
-| 输入 | 说明 | 默认值 |
+| 参数 | 说明 | 默认值 |
 |---|---|---|
-| `flutter-version` | Flutter OHOS fork 版本 | `3.41.10-ohos-1.0.1` |
-| `ohos-api` | 镜像中写入的 HarmonyOS API 级别 | `26` |
-| `build-mode` | `debug` 或 `release` | `release` |
-| `build-target` | `hap` 或 `app` | `app` |
+| `flutter-version` | Flutter OHOS 分支版本 | `3.41.10-ohos-1.0.1` |
+| `ohos-api` | HarmonyOS API 级别 | `26` |
+| `build-mode` | 构建模式：`debug` / `release` | `release` |
+| `build-target` | 构建目标：`hap` / `app` | `app` |
 | `project-path` | Flutter 项目根目录 | `.` |
-| `bundle-name` | `ohos/AppScope/app.json5` 中的 `bundleName` | 空 |
-| `app-name` | 应用显示名称 | 空 |
-| `sign-enabled` | 是否写入 `signingConfigs` | `false` |
-| `sign-alg` | 签名算法 | `SHA256withECDSA` |
-| `sign-key-alias` | `.p12` 中的 key alias | 空 |
-| `sign-key-password` | alias 密码 | 空 |
-| `sign-store-password` | keystore 密码 | 空 |
-| `sign-cert-base64` | `.cer` 文件 Base64 | 空 |
-| `sign-profile-base64` | `.p7b` 配置文件 Base64 | 空 |
-| `sign-store-file-base64` | `.p12` keystore Base64 | 空 |
 
-## 工作原理
+### 签名参数
 
-1. 使用支持 `ohos` 平台的 Flutter OHOS 分支。
-2. 如有需要，先执行 `flutter create --platforms=ohos`。
-3. 执行 `flutter pub get`。
-4. 向 `ohos/build-profile.json5` 注入 `compileSdkVersion`。
-5. 执行 `flutter build hap|app --<mode>`，并返回产物路径。
+| 参数 | 说明 |
+|---|---|
+| `bundle-name` | `ohos/AppScope/app.json5` 中的 `bundleName` |
+| `app-name` | 应用显示名称 |
+| `sign-enabled` | 是否写入签名配置 |
+| `sign-alg` | 签名算法 |
+| `sign-key-alias` | `.p12` key alias |
+| `sign-key-password` | alias 密码 |
+| `sign-store-password` | keystore 密码 |
+| `sign-cert-base64` | `.cer` 证书 Base64 |
+| `sign-profile-base64` | `.p7b` 配置文件 Base64 |
+| `sign-store-file-base64` | `.p12` keystore Base64 |
 
-## 发布签名
-
-标准 `flutter create` 生成的 `ohos/build-profile.json5` 常常会出现 `signingConfigs` 为空，而应用又声明了 `"signingConfig": "default"` 的情况，因此 `release` 构建必须先补齐签名配置。
-
-本 Action 支持接收 Base64 编码的签名文件，并在容器中写入 `/tmp`，随后再生成 `build-profile.json5`。
+## 发布签名示例
 
 ```yaml
 - uses: zhongdaiqi/flutter-ohos-builder@main
@@ -128,23 +130,25 @@ Flutter OHOS 分支与 HarmonyOS SDK 是强绑定关系；混用不兼容版本�
     sign-store-file-base64: ${{ secrets.OHOS_SIGN_STORE_FILE_BASE64 }}
 ```
 
-## 故障排查
+## 为什么这个项目值得用
 
-如果 `CompileArkTS` 报错提示缺失 ArkTS 符号，通常原因是 SDK 版本不匹配。
+很多人一开始以为 HarmonyOS 构建只是一个命令行问题，
+但真实情况是：工具链版本、编译目标、签名配置和工程结构都必须同步正确。
 
-请使用 `26.0.0` 工具链，并保持 `compileSdkVersion` 为 `26.0.0`。
-不要尝试把编译 SDK 降到 `compatibleSdkVersion` 的值来“绕过去”，因为后者表示运行时最低要求，而不是编译目标。
+`flutter-ohos-builder` 让这些事标准化，减少“本地能跑、CI 不能跑”的问题，
+帮助团队把 Android / Flutter / HarmonyOS 的构建流程变成更稳定、可维护的自动化能力。
 
-## 常见用途
+## 适用场景
 
-- Flutter 应用的 HarmonyOS CI 构建
-- 发布前的本地打包
-- 不同开发者机器之间的统一构建环境
-- 自托管 CI 或企业流水线集成
+- Flutter + HarmonyOS 项目持续构建
+- 预发布包生成与验签
+- 企业级 CI/CD 流水线接入
+- 本地打包验证与调试
+- 统一多台机器上的构建环境
 
 ## 免责声明
 
-本项目是一个独立的社区开源工具，用于借助 Flutter 构建 HarmonyOS 应用，
+本项目是一个独立的社区开源工具，用于协助 Flutter 应用构建 HarmonyOS 包，
 不隶属于华为技术有限公司或 OpenAtom Foundation。
 
 ## License
