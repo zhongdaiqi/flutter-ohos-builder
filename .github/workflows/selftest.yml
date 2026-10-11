@@ -29,6 +29,12 @@ concurrency:
   group: selftest-${{ github.ref }}
   cancel-in-progress: true
 
+# Least privilege by default. The docker-build job below overrides this with
+# contents: write because it force-pushes the diagnostics branch - everything else
+# here only reads.
+permissions:
+  contents: read
+
 jobs:
   validate:
     runs-on: ubuntu-latest

@@ -25,6 +25,12 @@ on:
       - 'entrypoint.sh'
       - '.github/workflows/web-build.yml'
 
+# Least privilege: this workflow only reads the repo and uploads artifacts.
+# Without an explicit block it inherits the repository default, which is often
+# read/write for everything - a much bigger blast radius than it needs.
+permissions:
+  contents: read
+
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
@@ -57,3 +63,9 @@ jobs:
           tags: |
             zhongdaiqi/flutter-ohos-builder:web-latest
             zhongdaiqi/flutter-ohos-builder:web-${{ github.sha }}
+          # Same cache wiring as release.yml: the Flutter clone and `flutter precache --web`
+          # layers are stable between runs, so reusing them saves most of the build.
+          # type=gha keeps the cache in GitHub's own (private) cache service - do NOT switch
+          # this to type=registry, that would publish the build context (see .dockerignore).
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
