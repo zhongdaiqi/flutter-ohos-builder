@@ -32,9 +32,7 @@ jobs:
       # leg died with `hvigorw: exit code 127` and - buildx being atomic - took the
       # whole multi-arch push down with it. That is why ghcr.io/...:latest never
       # existed despite v1.0 and v1.1 both being tagged.
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
-
+      # QEMU is gone with it: there is nothing to emulate for a single-platform build.
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -54,7 +52,7 @@ jobs:
             type=ref,event=tag
             type=raw,value=latest
 
-      - name: Build and push multi-arch image
+      - name: Build and push image (linux/amd64 only)
         uses: docker/build-push-action@v5
         with:
           context: .
