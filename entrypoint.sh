@@ -222,7 +222,7 @@ if ($s !~ /signingConfigs\s*\{/) {
 
 open(my $out,">",$f) or die "cannot write $f: $!";
 print $out $s; close $out;
-print "patched ${gradle_file}\n";
+print "patched $f\n";
 PERL
     perl /tmp/patch_apk_signing.pl || echo "WARNING: perl patch failed; build may fall back to debug signing."
     echo "--- ${gradle_file} (signing-related lines) ---"
