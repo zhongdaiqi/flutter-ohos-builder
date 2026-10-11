@@ -149,7 +149,7 @@ docker run --rm -v "$PWD":/workspace \
 Android builds are intentionally default-unsigned. If you need a signed release APK, enable signing explicitly:
 
 ```yaml
-- uses: zhongdaiqi/flutter-ohos-builder@main
+- uses: zhongdaiqi/flutter-ohos-builder@v1.4
   with:
     flutter-version: '3.41.10-ohos-1.0.1'
     build-target: 'android'
@@ -224,7 +224,7 @@ concatenate them in the step that feeds the action.
 ### 3. Use them
 
 ```yaml
-- uses: zhongdaiqi/flutter-ohos-builder@main
+- uses: zhongdaiqi/flutter-ohos-builder@v1.4
   with:
     flutter-version: '3.41.10-ohos-1.0.1'
     ohos-api: '26'

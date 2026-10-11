@@ -114,7 +114,7 @@ docker run --rm -v "$PWD":/workspace \
 ## 发布签名示例
 
 ```yaml
-- uses: zhongdaiqi/flutter-ohos-builder@main
+- uses: zhongdaiqi/flutter-ohos-builder@v1.4
   with:
     flutter-version: '3.41.10-ohos-1.0.1'
     ohos-api: '26'
