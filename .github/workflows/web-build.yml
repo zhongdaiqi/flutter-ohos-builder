@@ -1,0 +1,59 @@
+name: "Web Builder 镜像构建与推送"
+
+# =============================================================================
+# 从 Dockerfile.web 构建轻量级 Web Builder 镜像（Flutter + Web engine），
+# 推送到 Docker Hub。
+#
+# Web Builder ~1 GB（不含 OHOS SDK 6.75 GB + Android SDK 2 GB）。
+# 用于 CI 中加速 web 构建，代替每次重建全量 builder。
+#
+# 产物：
+#   zhongdaiqi/flutter-ohos-builder:web-latest
+#   zhongdaiqi/flutter-ohos-builder:web-<sha>
+#
+# 需在仓库 Settings → Secrets → Actions 中配置：
+#   - DOCKERHUB_USERNAME
+#   - DOCKERHUB_TOKEN
+# =============================================================================
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, master]
+    paths:
+      - 'Dockerfile.web'
+      - 'entrypoint.sh'
+      - '.github/workflows/web-build.yml'
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+                      /usr/local/share/boost /opt/hostedtoolcache/CodeQL || true
+          sudo docker image prune -af || true
+          df -h /
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push Web Builder image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile.web
+          push: true
+          tags: |
+            zhongdaiqi/flutter-ohos-builder:web-latest
+            zhongdaiqi/flutter-ohos-builder:web-${{ github.sha }}
