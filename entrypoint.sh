@@ -171,6 +171,45 @@ ensure_android_platform() {
     fi
 }
 
+# Inject a release signingConfig into the generated android/app/build.gradle.kts so that
+# `flutter build apk --release` signs with the keystore from android/key.properties (NOT the
+# Android debug keystore). Flutter's default Kotlin-DSL template leaves release signed with
+# the debug keys, and this fork's template does not read key.properties at all - so without
+# this patch the produced app-release.apk would be debug-signed.
+patch_android_signing() {
+    local gradle_file="android/app/build.gradle.kts"
+    if [[ ! -f "${gradle_file}" ]]; then
+        echo "WARNING: ${gradle_file} not found - cannot inject release signingConfig."
+        return 0
+    fi
+    echo "[3/4] Patching ${gradle_file} to apply release signing from android/key.properties..."
+    cat > /tmp/patch_apk_signing.pl <<'PERL'
+use strict; use warnings;
+my $f = "android/app/build.gradle.kts";
+local $/; open(my $fh,"<",$f) or die "cannot open $f: $!"; my $s = <$fh>; close $fh;
+if ($s =~ /create\("release"\)/ && $s =~ /keystoreProps/ && $s =~ /getByName\("release"\)/) {
+    print "android release signing already configured; skipping patch\n";
+} else {
+    my $block = "\n    signingConfigs {\n        create(\"release\") {\n            val keystoreProps = java.util.Properties()\n            val keystoreFile = rootProject.file(\"key.properties\")\n            if (keystoreFile.exists()) {\n                keystoreProps.load(java.io.FileInputStream(keystoreFile))\n            }\n            keyAlias = keystoreProps[\"keyAlias\"] as String\n            keyPassword = keystoreProps[\"keyPassword\"] as String\n            storeFile = file(keystoreProps[\"storeFile\"] as String)\n            storePassword = keystoreProps[\"storePassword\"] as String\n        }\n    }\n";
+    if ($s !~ /create\("release"\)/) {
+        $s =~ s/(\n)([ \t]*buildTypes \{)/$1$block$2/m;
+    }
+    $s =~ s/getByName\("debug"\)/getByName("release")/g;
+    if ($s !~ /signingConfig\s*=\s*signingConfigs\.getByName\("release"\)/) {
+        $s =~ s/(\n\s*release \{)/$1\n            signingConfig = signingConfigs.getByName("release")/;
+    }
+    open(my $out,">",$f) or die "cannot write $f: $!";
+    print $out $s; close $out;
+    print "patched build.gradle.kts with release signingConfig\n";
+}
+PERL
+    perl /tmp/patch_apk_signing.pl || echo "WARNING: perl patch failed; build may fall back to debug signing."
+    echo "--- ${gradle_file} (signing-related lines) ---"
+    grep -nE 'signingConfig|keystoreProps|keyAlias|storeFile|create\("release"\)|getByName' "${gradle_file}" || true
+    echo "--- ${gradle_file} (full, after patch) ---"
+    cat "${gradle_file}" || true
+}
+
 # CLI summary
 
 echo "================================"
@@ -258,6 +297,10 @@ fi
 # Android build path (default unsigned unless signing is enabled)
 if [[ "${BUILD_TARGET}" == "android" ]]; then
     ARTIFACT_GLOB="build/app/outputs/flutter-apk/*.apk"
+    # Apply release signing from android/key.properties if signing is enabled.
+    if [[ "${ANDROID_SIGN_ENABLED}" == "true" ]]; then
+        patch_android_signing
+    fi
     echo "[3/4] Building Android target (${BUILD_MODE})..."
     echo "Android toolchain:"
     flutter doctor -v 2>/dev/null | grep -iA1 'Android toolchain' || true
