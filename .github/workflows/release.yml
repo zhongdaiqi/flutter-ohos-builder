@@ -18,6 +18,20 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # The full builder image is ~8 GB (OHOS SDK 6.75 GB + Android SDK + Flutter).
+      # The stock runner does not have enough headroom without reclaiming these.
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+                      /usr/local/share/boost /opt/hostedtoolcache/CodeQL || true
+          sudo docker image prune -af || true
+          df -h /
+
+      # NOTE: linux/arm64 is deliberately NOT built here. The HarmonyOS
+      # command-line-tools (hvigorw / ohpm) ship for linux-x64 only, so the arm64
+      # leg died with `hvigorw: exit code 127` and - buildx being atomic - took the
+      # whole multi-arch push down with it. That is why ghcr.io/...:latest never
+      # existed despite v1.0 and v1.1 both being tagged.
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
 
@@ -44,7 +58,7 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           context: .
-          platforms: linux/amd64,linux/arm64
+          platforms: linux/amd64
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
