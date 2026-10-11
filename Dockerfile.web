@@ -1,0 +1,35 @@
+FROM ubuntu:22.04
+
+LABEL maintainer="zhongdaiqi"
+LABEL description="Flutter web-only build image (no OHOS/Android SDK — lightweight)"
+LABEL org.opencontainers.image.source="https://github.com/zhongdaiqi/flutter-ohos-builder"
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV NODE_HOME=/opt/node
+ENV FLUTTER_HOME=/opt/flutter
+
+# Only what `flutter build web` genuinely needs — no JDK, no OHOS SDK, no Android SDK.
+# This keeps the image under 1 GB instead of the full builder's ~8 GB.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git curl unzip xz-utils ca-certificates file procps \
+    && rm -rf /var/lib/apt/lists/*
+
+# Node.js 18 (Flutter tooling needs a JS runtime even for web builds)
+RUN curl -fsSL https://nodejs.org/dist/v18.20.1/node-v18.20.1-linux-x64.tar.xz \
+    | tar xJ -C /opt && mv /opt/node-v18.20.1-linux-x64 /opt/node
+
+ENV PATH=$NODE_HOME/bin:$FLUTTER_HOME/bin:$PATH
+
+# Flutter OHOS fork (same as the full builder; web support is inherited from upstream Flutter)
+ARG FLUTTER_OHOS_TAG=3.41.10-ohos-1.0.1
+RUN git clone --depth 1 -b ${FLUTTER_OHOS_TAG} \
+    https://github.com/zhongdaiqi/flutter_flutter.git /opt/flutter
+
+# Pre-cache web engine (otherwise flutter build web downloads it at run time)
+RUN flutter config --enable-web && flutter precache --web
+
+# Reuse the same entrypoint — its web target path is self-contained and does not
+# touch OHOS or Android code paths at all.
+COPY entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+ENTRYPOINT ["/entrypoint.sh"]
