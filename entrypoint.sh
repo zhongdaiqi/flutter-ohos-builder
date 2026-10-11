@@ -171,15 +171,21 @@ ensure_android_platform() {
     fi
 }
 
-# Inject a release signingConfig into the generated android/app/build.gradle.kts so that
-# `flutter build apk --release` signs with the keystore from android/key.properties (NOT the
-# Android debug keystore). Flutter's default Kotlin-DSL template leaves release signed with
-# the debug keys, and this fork's template does not read key.properties at all - so without
-# this patch the produced app-release.apk would be debug-signed.
+# In the generated android/app/build.gradle.kts, the Flutter Kotlin-DSL template ships
+# NO signingConfigs block and forces `buildTypes.release` to sign with the debug keys
+# (signingConfig = signingConfigs.getByName("debug")). So we must BOTH:
+#   1) repoint buildTypes.release to a "release" signingConfig, and
+#   2) inject that "release" signingConfig, which reads android/key.properties
+#      (written earlier by build_android_signing) and points at the real keystore.
+# Without step 1+2 the produced app-release.apk would silently be debug-signed.
 patch_android_signing() {
     local gradle_file="android/app/build.gradle.kts"
     if [[ ! -f "${gradle_file}" ]]; then
         echo "WARNING: ${gradle_file} not found - cannot inject release signingConfig."
+        return 0
+    fi
+    if [[ ! -f "android/key.properties" ]]; then
+        echo "WARNING: android/key.properties not found - skipping patch (build will NOT be release-signed)."
         return 0
     fi
     echo "[3/4] Patching ${gradle_file} to apply release signing from android/key.properties..."
@@ -188,28 +194,17 @@ use strict; use warnings;
 my $f = "android/app/build.gradle.kts";
 local $/; open(my $fh,"<",$f) or die "cannot open $f: $!"; my $s = <$fh>; close $fh;
 
-my $needle = "signingConfigs {";
-my $idx = index($s, $needle);
-if ($idx < 0) {
-    print "WARNING: no signingConfigs block found in $f; skipping patch\n";
-} else {
-    # Walk balanced braces to find the full signingConfigs { ... } block so we can
-    # replace it whole - this avoids the fragile "insert another block" approach that
-    # produced an unclosed/duplicate release block before.
-    my $start = $idx + length($needle);
-    my $depth = 1;
-    my $end = $start;
-    my $len = length($s);
-    while ($depth > 0 && $end < $len) {
-        my $c = substr($s, $end, 1);
-        if ($c eq '{') { $depth++; }
-        elsif ($c eq '}') { $depth--; }
-        $end++;
-    }
-    my $repl = "signingConfigs {\n"
-        . "        release {\n"
+# 1) Repoint release buildType from the debug signingConfig to our "release" one.
+$s =~ s/signingConfigs\.getByName\("debug"\)/signingConfigs.getByName("release")/g;
+
+# 2) Inject the "release" signingConfig if the template didn't define one.
+#    Flutter's Kotlin-DSL template ships NO signingConfigs block at all, so we must
+#    add it; otherwise buildTypes.release would point at a non-existent config.
+if ($s !~ /signingConfigs\s*\{/) {
+    my $block = "\n    signingConfigs {\n"
+        . "        create(\"release\") {\n"
         . "            val keystoreProps = java.util.Properties()\n"
-        . "            val keystoreFile = file(\"key.properties\")\n"
+        . "            val keystoreFile = rootProject.file(\"android/key.properties\")\n"
         . "            if (keystoreFile.exists()) {\n"
         . "                keystoreProps.load(java.io.FileInputStream(keystoreFile))\n"
         . "                keyAlias = keystoreProps[\"keyAlias\"] as String\n"
@@ -218,12 +213,16 @@ if ($idx < 0) {
         . "                storePassword = keystoreProps[\"storePassword\"] as String\n"
         . "            }\n"
         . "        }\n"
-        . "    }";
-    substr($s, $idx, $end - $idx) = $repl;
-    open(my $out,">",$f) or die "cannot write $f: $!";
-    print $out $s; close $out;
-    print "patched signingConfigs block with release signing from key.properties\n";
+        . "    }\n";
+    $s =~ s/(\n[ \t]*buildTypes\s*\{)/$block . $1/e;
+    print "injected signingConfigs.release (reads android/key.properties)\n";
+} else {
+    print "signingConfigs block already present; left untouched\n";
 }
+
+open(my $out,">",$f) or die "cannot write $f: $!";
+print $out $s; close $out;
+print "patched ${gradle_file}\n";
 PERL
     perl /tmp/patch_apk_signing.pl || echo "WARNING: perl patch failed; build may fall back to debug signing."
     echo "--- ${gradle_file} (signing-related lines) ---"
