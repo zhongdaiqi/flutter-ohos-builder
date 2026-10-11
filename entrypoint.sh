@@ -187,25 +187,47 @@ patch_android_signing() {
 use strict; use warnings;
 my $f = "android/app/build.gradle.kts";
 local $/; open(my $fh,"<",$f) or die "cannot open $f: $!"; my $s = <$fh>; close $fh;
-if ($s =~ /create\("release"\)/ && $s =~ /keystoreProps/ && $s =~ /getByName\("release"\)/) {
-    print "android release signing already configured; skipping patch\n";
+
+my $needle = "signingConfigs {";
+my $idx = index($s, $needle);
+if ($idx < 0) {
+    print "WARNING: no signingConfigs block found in $f; skipping patch\n";
 } else {
-    my $block = "\n    signingConfigs {\n        create(\"release\") {\n            val keystoreProps = java.util.Properties()\n            val keystoreFile = rootProject.file(\"key.properties\")\n            if (keystoreFile.exists()) {\n                keystoreProps.load(java.io.FileInputStream(keystoreFile))\n            }\n            keyAlias = keystoreProps[\"keyAlias\"] as String\n            keyPassword = keystoreProps[\"keyPassword\"] as String\n            storeFile = file(keystoreProps[\"storeFile\"] as String)\n            storePassword = keystoreProps[\"storePassword\"] as String\n        }\n    }\n";
-    if ($s !~ /create\("release"\)/) {
-        $s =~ s/(\n)([ \t]*buildTypes \{)/$1$block$2/m;
+    # Walk balanced braces to find the full signingConfigs { ... } block so we can
+    # replace it whole - this avoids the fragile "insert another block" approach that
+    # produced an unclosed/duplicate release block before.
+    my $start = $idx + length($needle);
+    my $depth = 1;
+    my $end = $start;
+    my $len = length($s);
+    while ($depth > 0 && $end < $len) {
+        my $c = substr($s, $end, 1);
+        if ($c eq '{') { $depth++; }
+        elsif ($c eq '}') { $depth--; }
+        $end++;
     }
-    $s =~ s/getByName\("debug"\)/getByName("release")/g;
-    if ($s !~ /signingConfig\s*=\s*signingConfigs\.getByName\("release"\)/) {
-        $s =~ s/(\n\s*release \{)/$1\n            signingConfig = signingConfigs.getByName("release")/;
-    }
+    my $repl = "signingConfigs {\n"
+        . "        release {\n"
+        . "            val keystoreProps = java.util.Properties()\n"
+        . "            val keystoreFile = file(\"key.properties\")\n"
+        . "            if (keystoreFile.exists()) {\n"
+        . "                keystoreProps.load(java.io.FileInputStream(keystoreFile))\n"
+        . "                keyAlias = keystoreProps[\"keyAlias\"] as String\n"
+        . "                keyPassword = keystoreProps[\"keyPassword\"] as String\n"
+        . "                storeFile = file(keystoreProps[\"storeFile\"] as String)\n"
+        . "                storePassword = keystoreProps[\"storePassword\"] as String\n"
+        . "            }\n"
+        . "        }\n"
+        . "    }";
+    substr($s, $idx, $end - $idx) = $repl;
     open(my $out,">",$f) or die "cannot write $f: $!";
     print $out $s; close $out;
-    print "patched build.gradle.kts with release signingConfig\n";
+    print "patched signingConfigs block with release signing from key.properties\n";
 }
 PERL
     perl /tmp/patch_apk_signing.pl || echo "WARNING: perl patch failed; build may fall back to debug signing."
     echo "--- ${gradle_file} (signing-related lines) ---"
-    grep -nE 'signingConfig|keystoreProps|keyAlias|storeFile|create\("release"\)|getByName' "${gradle_file}" || true
+    grep -nE 'signingConfig|keystoreProps|keyAlias|storeFile|getByName' "${gradle_file}" || true
     echo "--- ${gradle_file} (full, after patch) ---"
     cat "${gradle_file}" || true
 }
