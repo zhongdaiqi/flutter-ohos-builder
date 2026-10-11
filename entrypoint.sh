@@ -29,6 +29,16 @@ TEE_PID=$!
 # runner-level timeout (observed: 85 silent minutes in run 37985171560).
 TEE_PID=""
 cleanup() {
+    # Scrub the plaintext signing material this script created. Gradle has already
+    # consumed android/key.properties by now and the signed artifact lives under
+    # build/ - leaving storePassword/keyPassword behind in the MOUNTED workspace
+    # would leak them into uploaded artifacts, `docker commit` snapshots and any
+    # project directory that later gets archived or checked in.
+    # Runs on every exit path (success, failure, set -e abort) via `trap cleanup EXIT`.
+    if [[ -n "${WORKSPACE_DIR:-}" ]]; then
+        rm -f "${WORKSPACE_DIR}/android/key.properties" 2>/dev/null || true
+    fi
+    rm -rf /tmp/android-sign 2>/dev/null || true
     sync
     if [[ -z "${TEE_PID}" ]]; then
         for d in /proc/[0-9]*; do
