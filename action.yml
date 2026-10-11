@@ -19,7 +19,7 @@ inputs:
     required: false
     default: 'release'
   build-target:
-    description: 'Build target: hap, app or android'
+    description: 'Build target: hap, app, android or web'
     required: false
     default: 'app'
   project-path:

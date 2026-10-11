@@ -331,7 +331,11 @@ if [[ "${BUILD_TARGET}" == "android" ]]; then
         echo "[3/4] Preparing Android signing material..."
         build_android_signing || echo "WARNING: Android signing prep failed; build will continue unsigned."
     fi
-elif [[ "${BUILD_TARGET}" != "android" ]]; then
+elif [[ "${BUILD_TARGET}" == "web" ]]; then
+    # Web platform prep is handled inside the web build block below (after android).
+    true
+else
+    # OHOS (hap / app)
     echo "[3/4] Installing dependencies..."
     if [[ ! -d "ohos" ]]; then
         PROJECT_NAME="$(grep -m1 '^name:' pubspec.yaml | sed 's/^name:[[:space:]]*//' | tr -d '[:space:]')"
@@ -420,6 +424,43 @@ if [[ "${BUILD_TARGET}" == "android" ]]; then
 
     if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
         echo "artifact-path=${ARTIFACT_PATH}" >> "${GITHUB_OUTPUT}"
+        echo "build-log=${LOG_FILE}" >> "${GITHUB_OUTPUT}"
+    fi
+    sync || true
+    exit 0
+fi
+
+# ── Web build path ─────────────────────────────────────────────────────────
+if [[ "${BUILD_TARGET}" == "web" ]]; then
+    echo "[3/4] Preparing Web platform..."
+    if [[ ! -d "web" ]]; then
+        PROJECT_NAME="$(grep -m1 '^name:' pubspec.yaml | sed 's/^name:[[:space:]]*//' | tr -d '[:space:]')"
+        PROJECT_NAME="${PROJECT_NAME:-app}"
+        echo "web/ platform not found, generating via: flutter create --platforms=web --project-name=${PROJECT_NAME} ."
+        flutter create --platforms=web --project-name="${PROJECT_NAME}" .
+    fi
+    flutter pub get
+
+    echo "[4/4] Building Web target (${BUILD_MODE})..."
+    set +e
+    flutter build web --"${BUILD_MODE}" < /dev/null
+    FLUTTER_RC=$?
+    set -e
+    echo "[4/4] flutter build web exited with code ${FLUTTER_RC}"
+
+    if [[ "${FLUTTER_RC}" -ne 0 ]]; then
+        echo "ERROR: flutter build web failed with code ${FLUTTER_RC}."
+        exit "${FLUTTER_RC}"
+    fi
+
+    echo "================================"
+    echo "  BUILD SUCCESS"
+    echo "  Artifact: build/web/"
+    echo "  Size: $(du -sh build/web | cut -f1)"
+    echo "================================"
+
+    if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
+        echo "artifact-path=build/web" >> "${GITHUB_OUTPUT}"
         echo "build-log=${LOG_FILE}" >> "${GITHUB_OUTPUT}"
     fi
     sync || true
