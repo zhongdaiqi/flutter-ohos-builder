@@ -302,6 +302,31 @@ if [[ "${BUILD_TARGET}" == "android" ]]; then
     echo "  Size: $(du -h "${ARTIFACT_PATH}" | cut -f1)"
     echo "================================"
 
+    # Verify the APK signature and print the signing scheme (V1/V2/V3) + certificate
+    # fingerprints into the CI log. This makes the signing status visible at a glance
+    # without anyone having to re-download and run apksigner locally.
+    echo "[4/4] Verifying APK signature..."
+    set +e
+    APKSIGNER="$(ls "${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"/build-tools/*/apksigner 2>/dev/null | head -1)"
+    if [[ -z "${APKSIGNER}" ]]; then
+        APKSIGNER="$(command -v apksigner || true)"
+    fi
+    if [[ -n "${APKSIGNER}" ]]; then
+        echo "  apksigner: ${APKSIGNER}"
+        echo "  ----- apksigner verify --print-certs -----"
+        "${APKSIGNER}" verify --print-certs "${ARTIFACT_PATH}"
+        VRC=$?
+        echo "  ------------------------------------------"
+        if [[ ${VRC} -eq 0 ]]; then
+            echo "[4/4] apksigner verify: OK - APK is signed and valid (see scheme/fingerprints above)"
+        else
+            echo "[4/4] WARNING: apksigner verify returned ${VRC} - APK may be unsigned or invalid"
+        fi
+    else
+        echo "[4/4] WARNING: apksigner not found in Android SDK build-tools; skipping signature verification."
+    fi
+    set -e
+
     if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
         echo "artifact-path=${ARTIFACT_PATH}" >> "${GITHUB_OUTPUT}"
         echo "build-log=${LOG_FILE}" >> "${GITHUB_OUTPUT}"
