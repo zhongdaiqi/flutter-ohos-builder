@@ -201,16 +201,23 @@ $s =~ s/signingConfigs\.getByName\("debug"\)/signingConfigs.getByName("release")
 #    Flutter's Kotlin-DSL template ships NO signingConfigs block at all, so we must
 #    add it; otherwise buildTypes.release would point at a non-existent config.
 if ($s !~ /signingConfigs\s*\{/) {
+    # NOTE: avoid java.util.* / java.io.* fully-qualified refs here - Kotlin DSL build
+    # scripts do NOT auto-import java.*, so `java.util.Properties()` / `java.io.FileInputStream`
+    # fail with "Unresolved reference". Also drop the redundant `as String` casts (Kotlin
+    # flags them as errors). Parse key.properties with the stdlib instead (readLines is in
+    # kotlin.io, auto-imported).
     my $block = "\n    signingConfigs {\n"
         . "        create(\"release\") {\n"
-        . "            val keystoreProps = java.util.Properties()\n"
-        . "            val keystoreFile = rootProject.file(\"android/key.properties\")\n"
-        . "            if (keystoreFile.exists()) {\n"
-        . "                keystoreProps.load(java.io.FileInputStream(keystoreFile))\n"
-        . "                keyAlias = keystoreProps[\"keyAlias\"] as String\n"
-        . "                keyPassword = keystoreProps[\"keyPassword\"] as String\n"
-        . "                storeFile = file(keystoreProps[\"storeFile\"] as String)\n"
-        . "                storePassword = keystoreProps[\"storePassword\"] as String\n"
+        . "            val propsFile = rootProject.file(\"android/key.properties\")\n"
+        . "            if (propsFile.exists()) {\n"
+        . "                val props = propsFile.readLines()\n"
+        . "                    .map { it.split(\"=\", limit = 2) }\n"
+        . "                    .filter { it.size == 2 }\n"
+        . "                    .associate { it[0].trim() to it[1].trim() }\n"
+        . "                keyAlias = props[\"keyAlias\"]\n"
+        . "                keyPassword = props[\"keyPassword\"]\n"
+        . "                storeFile = file(props[\"storeFile\"]!!)\n"
+        . "                storePassword = props[\"storePassword\"]\n"
         . "            }\n"
         . "        }\n"
         . "    }\n";
