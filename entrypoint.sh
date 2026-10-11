@@ -130,7 +130,22 @@ keyAlias=${ANDROID_SIGN_KEY_ALIAS}
 storeFile=${ANDROID_SIGN_DIR}/keystore.jks
 EOF
 
-    echo "[Android] Wrote ${KEYPROPS_FILE}"
+    # ALSO write a canonical ABSOLUTE copy under ANDROID_SIGN_DIR. The gradle
+    # patch reads this path with file("<absolute>") so it is immune to both the
+    # current working directory and the Gradle root-project layout (in a Flutter
+    # project rootProject.dir is the android/ folder, so rootProject.file(
+    # "android/key.properties") would resolve to android/android/key.properties
+    # and silently miss). Keeping the relative android/key.properties too for
+    # the Flutter convention / human readability.
+    cat > "${ANDROID_SIGN_DIR}/key.properties" <<EOF
+storePassword=${ANDROID_SIGN_STORE_PASSWORD}
+keyPassword=${ANDROID_SIGN_KEY_PASSWORD}
+keyAlias=${ANDROID_SIGN_KEY_ALIAS}
+storeFile=${ANDROID_SIGN_DIR}/keystore.jks
+EOF
+    cp "${ANDROID_SIGN_DIR}/key.properties" "${KEYPROPS_FILE}"
+
+    echo "[Android] Wrote ${KEYPROPS_FILE} and ${ANDROID_SIGN_DIR}/key.properties"
     echo "[Android] Keystore path = ${ANDROID_SIGN_DIR}/keystore.jks"
 }
 
@@ -175,20 +190,25 @@ ensure_android_platform() {
 # NO signingConfigs block and forces `buildTypes.release` to sign with the debug keys
 # (signingConfig = signingConfigs.getByName("debug")). So we must BOTH:
 #   1) repoint buildTypes.release to a "release" signingConfig, and
-#   2) inject that "release" signingConfig, which reads android/key.properties
-#      (written earlier by build_android_signing) and points at the real keystore.
-# Without step 1+2 the produced app-release.apk would silently be debug-signed.
+#   2) inject that "release" signingConfig, which reads the ABSOLUTE key.properties
+#      under /tmp/android-sign (written earlier by build_android_signing) and points
+#      at the real keystore. We use an absolute path on purpose: in a Flutter
+#      project the Gradle root project dir is the android/ folder, so a relative
+#      rootProject.file("android/key.properties") would resolve to
+#      android/android/key.properties and silently miss. Without step 1+2 the
+#      produced app-release.apk would silently be debug-signed.
 patch_android_signing() {
     local gradle_file="android/app/build.gradle.kts"
+    local keyprops_abs="/tmp/android-sign/key.properties"
     if [[ ! -f "${gradle_file}" ]]; then
         echo "WARNING: ${gradle_file} not found - cannot inject release signingConfig."
         return 0
     fi
-    if [[ ! -f "android/key.properties" ]]; then
-        echo "WARNING: android/key.properties not found - skipping patch (build will NOT be release-signed)."
+    if [[ ! -f "${keyprops_abs}" ]]; then
+        echo "WARNING: ${keyprops_abs} not found - skipping patch (build will NOT be release-signed)."
         return 0
     fi
-    echo "[3/4] Patching ${gradle_file} to apply release signing from android/key.properties..."
+    echo "[3/4] Patching ${gradle_file} to apply release signing from ${keyprops_abs}..."
     cat > /tmp/patch_apk_signing.pl <<'PERL'
 use strict; use warnings;
 my $f = "android/app/build.gradle.kts";
@@ -208,7 +228,7 @@ if ($s !~ /signingConfigs\s*\{/) {
     # kotlin.io, auto-imported).
     my $block = "\n    signingConfigs {\n"
         . "        create(\"release\") {\n"
-        . "            val propsFile = rootProject.file(\"android/key.properties\")\n"
+        . "            val propsFile = file(\"/tmp/android-sign/key.properties\")\n"
         . "            if (propsFile.exists()) {\n"
         . "                val props = propsFile.readLines()\n"
         . "                    .map { it.split(\"=\", limit = 2) }\n"
@@ -222,7 +242,7 @@ if ($s !~ /signingConfigs\s*\{/) {
         . "        }\n"
         . "    }\n";
     $s =~ s/(\n[ \t]*buildTypes\s*\{)/$block . $1/e;
-    print "injected signingConfigs.release (reads android/key.properties)\n";
+    print "injected signingConfigs.release (reads /tmp/android-sign/key.properties)\n";
 } else {
     print "signingConfigs block already present; left untouched\n";
 }
