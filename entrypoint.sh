@@ -122,8 +122,27 @@ build_android_signing() {
     rm -rf "${ANDROID_SIGN_DIR}"
     mkdir -p "${ANDROID_SIGN_DIR}"
 
-    if [[ -z "${ANDROID_SIGN_STORE_BASE64}" ]]; then
-        echo "ERROR: android keystore (android-sign-store-base64) is empty."
+    # Fail fast on any missing signing field.
+    #
+    # Without this, an empty storePassword silently produces a key.properties
+    # with `storePassword=` and Gradle later dies with the spectacularly
+    # misleading "keystore password was incorrect" — which reads like the
+    # password is wrong when in fact it was never supplied at all. Naming the
+    # exact empty field (and its action input) saves a full CI round-trip.
+    # NOTE: written as `if` rather than `[[ ]] && arr+=(...)`. Under `set -e` a
+    # false test makes the whole &&-list return 1, which would kill the script.
+    local missing=()
+    if [[ -z "${ANDROID_SIGN_STORE_BASE64}" ]];   then missing+=("android-sign-store-base64"); fi
+    if [[ -z "${ANDROID_SIGN_STORE_PASSWORD}" ]]; then missing+=("android-sign-store-password"); fi
+    if [[ -z "${ANDROID_SIGN_KEY_PASSWORD}" ]];   then missing+=("android-sign-key-password"); fi
+    if [[ -z "${ANDROID_SIGN_KEY_ALIAS}" ]];      then missing+=("android-sign-key-alias"); fi
+    if [[ ${#missing[@]} -gt 0 ]]; then
+        echo "ERROR: android signing is enabled but these required inputs are empty:"
+        for f in "${missing[@]}"; do
+            echo "  - ${f}"
+        done
+        echo "Set them as repository secrets, or pass android-sign-enabled=false"
+        echo "to build an unsigned/debug APK instead."
         return 1
     fi
 
@@ -339,7 +358,15 @@ if [[ "${BUILD_TARGET}" == "android" ]]; then
     # Now that android/ exists, prepare signing material (writes android/key.properties).
     if [[ "${ANDROID_SIGN_ENABLED}" == "true" ]]; then
         echo "[3/4] Preparing Android signing material..."
-        build_android_signing || echo "WARNING: Android signing prep failed; build will continue unsigned."
+        # Fail hard rather than silently degrading to an unsigned/debug APK.
+        # Someone who asked for a signed release build and gets a debug-signed
+        # one has no way of noticing until it is too late.
+        build_android_signing || {
+            echo "ERROR: Android signing was requested (android-sign-enabled=true)"
+            echo "       but the signing material could not be prepared. Aborting"
+            echo "       instead of silently falling back to an unsigned build."
+            exit 1
+        }
     fi
 elif [[ "${BUILD_TARGET}" == "web" ]]; then
     # Web platform prep is handled inside the web build block below (after android).
