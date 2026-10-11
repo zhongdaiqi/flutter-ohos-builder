@@ -90,8 +90,8 @@ steps:
       android-sign-enabled: 'true'
       android-sign-key-alias: ${{ secrets.ANDROID_SIGN_KEY_ALIAS }}
       android-sign-key-password: ${{ secrets.ANDROID_SIGN_KEY_PASSWORD }}
-      android-sign-store-base64: ${{ secrets.ANDROID_STORE_BASE64 }}
-      android-sign-store-password: ${{ secrets.ANDROID_STORE_PASSWORD }}
+      android-sign-store-base64: ${{ secrets.ANDROID_SIGN_STORE_BASE64 }}
+      android-sign-store-password: ${{ secrets.ANDROID_SIGN_STORE_PASSWORD }}
 ```
 
 ### Local Docker
@@ -157,8 +157,8 @@ Android builds are intentionally default-unsigned. If you need a signed release 
     android-sign-enabled: 'true'
     android-sign-key-alias: ${{ secrets.ANDROID_SIGN_KEY_ALIAS }}
     android-sign-key-password: ${{ secrets.ANDROID_SIGN_KEY_PASSWORD }}
-    android-sign-store-base64: ${{ secrets.ANDROID_STORE_BASE64 }}
-    android-sign-store-password: ${{ secrets.ANDROID_STORE_PASSWORD }}
+    android-sign-store-base64: ${{ secrets.ANDROID_SIGN_STORE_BASE64 }}
+    android-sign-store-password: ${{ secrets.ANDROID_SIGN_STORE_PASSWORD }}
 ```
 
 The action writes an `android/key.properties` file internally, then deletes it after the build finishes so the repository workspace stays clean.
@@ -169,8 +169,8 @@ Recommended GitHub secrets:
 |---|---|
 | `ANDROID_SIGN_KEY_ALIAS` | Android key alias |
 | `ANDROID_SIGN_KEY_PASSWORD` | alias password |
-| `ANDROID_STORE_BASE64` | Base64 of the `.jks`/`.keystore` file |
-| `ANDROID_STORE_PASSWORD` | keystore password |
+| `ANDROID_SIGN_STORE_BASE64` | Base64 of the `.jks`/`.keystore` file |
+| `ANDROID_SIGN_STORE_PASSWORD` | keystore password |
 
 ## Signing a release package (HarmonyOS)
 

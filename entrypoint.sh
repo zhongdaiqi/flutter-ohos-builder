@@ -27,6 +27,21 @@ TEE_PID=$!
 # (the pipe into tee) and can keep it open forEVER after this script dies, and since
 # the entrypoint is PID 1, an unbounded `wait` here hangs the whole job until the
 # runner-level timeout (observed: 85 silent minutes in run 37985171560).
+# Blank out plaintext signing passwords inside an OHOS build-profile.json5.
+#
+# Defined ABOVE cleanup() on purpose: cleanup runs from a trap, and the script can
+# exit (e.g. "Unknown arg") before the later function definitions are reached - an
+# undefined command inside cleanup would abort it mid-way and leave `tee` alive,
+# which historically hung the job for 85 minutes.
+redact_build_profile() {
+    local f="${1:-}"
+    [[ -f "${f}" ]] || return 0
+    grep -q '"keyPassword"' "${f}" 2>/dev/null || return 0
+    perl -0777 -i -pe 's/("(?:keyPassword|storePassword)"\s*:\s*)"[^"]*"/$1"******"/g' "${f}" \
+        2>/dev/null || echo "WARNING: could not redact ${f}"
+    echo "[cleanup] redacted keyPassword/storePassword in ${f}"
+}
+
 TEE_PID=""
 cleanup() {
     # Scrub the plaintext signing material this script created. Gradle has already
@@ -34,11 +49,20 @@ cleanup() {
     # build/ - leaving storePassword/keyPassword behind in the MOUNTED workspace
     # would leak them into uploaded artifacts, `docker commit` snapshots and any
     # project directory that later gets archived or checked in.
+    #
+    # The same applies - with more force - to OHOS: hvigor's signingConfigs block is
+    # written INTO the mounted workspace (ohos/build-profile.json5) and carries
+    # keyPassword/storePassword in plaintext. Android keeps its passwords under /tmp;
+    # OHOS does not. Without redaction here, a local `docker run -v $(pwd):/workspace`
+    # followed by `git add -A` commits the plaintext passwords of a public repo.
     # Runs on every exit path (success, failure, set -e abort) via `trap cleanup EXIT`.
     if [[ -n "${WORKSPACE_DIR:-}" ]]; then
         rm -f "${WORKSPACE_DIR}/android/key.properties" 2>/dev/null || true
     fi
+    redact_build_profile "${WORKSPACE_DIR}/ohos/build-profile.json5"
+    redact_build_profile "ohos/build-profile.json5"
     rm -rf /tmp/android-sign 2>/dev/null || true
+    rm -rf /tmp/ohos-sign 2>/dev/null || true
     sync
     if [[ -z "${TEE_PID}" ]]; then
         for d in /proc/[0-9]*; do
@@ -391,8 +415,8 @@ if [[ "${BUILD_TARGET}" == "android" ]]; then
         patch_android_signing
     fi
     echo "[3/4] Building Android target (${BUILD_MODE})..."
-    echo "Android toolchain:"
-    flutter doctor -v 2>/dev/null | grep -iA1 'Android toolchain' || true
+    # NOTE: no second `flutter doctor -v` here - the full doctor already ran at step 1
+    # and this one costs another 30-60s of CI time for a summary it already contains.
 
     # Capture the exit code explicitly (don't let `set -e` abort before cleanup).
     set +e
@@ -660,6 +684,12 @@ else
 fi
 
 # Step 3: Build
+# Capture the exit code explicitly instead of letting `set -e` abort here - same
+# pattern as the Android path. Without this the FLUTTER_RC branches below are dead
+# code: any non-zero build would terminate the script on the spot, so the
+# "debug build exited non-zero but the artifact exists -> treat as success"
+# fallback could never fire.
+set +e
 if [[ "${BUILD_TARGET}" == "app" ]]; then
     echo "[4/4] Building OHOS app (${BUILD_MODE})..."
     flutter build app --"${BUILD_MODE}" < /dev/null
@@ -674,6 +704,7 @@ else
     echo "ERROR: Unknown build target: ${BUILD_TARGET}"
     exit 1
 fi
+set -e
 
 echo "[4/4] flutter build exited with code ${FLUTTER_RC}"
 rm -rf "${SIGN_DIR}"

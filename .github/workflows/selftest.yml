@@ -1,11 +1,33 @@
 name: Self-test
 
+# The docker-build job below builds the FULL image (~8 GB: HarmonyOS CLT 6.8 GB +
+# Android SDK + Flutter) from scratch - 30-60 minutes of runner time. Running it on
+# every push/PR burns the whole CI quota on commits that cannot possibly affect it
+# (README edits, workflow renames...), and on a public repo a fork PR can trigger it
+# too. So: only run when the image itself could have changed.
 on:
   push:
     branches: [main, master]
+    paths:
+      - 'Dockerfile'
+      - 'Dockerfile.web'
+      - 'entrypoint.sh'
+      - 'action.yml'
+      - '.github/workflows/selftest.yml'
   pull_request:
     branches: [main, master]
+    paths:
+      - 'Dockerfile'
+      - 'Dockerfile.web'
+      - 'entrypoint.sh'
+      - 'action.yml'
+      - '.github/workflows/selftest.yml'
   workflow_dispatch:
+
+# A superseded self-test is worth nothing - cancel it and free the runner.
+concurrency:
+  group: selftest-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   validate:
