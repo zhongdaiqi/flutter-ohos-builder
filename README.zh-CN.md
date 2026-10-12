@@ -18,7 +18,7 @@
 
 `flutter-ohos-builder` 就是为了解决这些问题而设计的。
 
-它把 Flutter OHOS 分支、HarmonyOS 命令行工具、SDK、JDK、Node 和 `hvigor` ��一打进镜像中，
+它把 Flutter OHOS 分支、HarmonyOS 命令行工具、SDK、JDK、Node 和 `hvigor` 统一打进镜像中，
 让你可以用同一套环境在本地、GitHub Actions 或自托管 CI 中稳定构建 HarmonyOS 应用。
 
 ## 适合谁使用
@@ -82,6 +82,36 @@ docker run --rm -v "$PWD":/workspace \
   ghcr.io/zhongdaiqi/flutter-ohos-builder:latest \
   --build-mode release --build-target app
 ```
+
+> **`$PWD` 是什么？**
+>
+> `$PWD` 是 shell 自带的环境变量（全称 Print Working Directory），值就是**你当前所在的目录**。
+> 所以 `-v "$PWD":/workspace` 的含义是：**把「当前目录」挂进容器的 `/workspace`** ——
+> 容器读取的 Flutter 工程来自这里，构建产物（`ohos/build/outputs/...`）也写回这里。
+>
+> 因此执行前**必须先 `cd` 到你的 Flutter 项目根目录**：
+>
+> ```bash
+> cd /path/to/your/flutter_ohos_project   # 就是有 pubspec.yaml 和 ohos/ 目录的那一层
+> ```
+>
+> 否则挂进去的是别的目录，容器找不到工程，构建会直接失败。
+>
+> 不同命令行的等价写法：
+>
+> | 环境 | 挂载参数写法 |
+> |---|---|
+> | Linux / macOS / Git Bash / WSL | `-v "$PWD":/workspace` |
+> | Windows PowerShell | `-v "${PWD}":/workspace` 或 `-v "$(Get-Location)":/workspace` |
+> | Windows CMD | `-v "%CD%":/workspace` |
+>
+> 两个新手常见坑：
+>
+> 1. **Windows 需要先开文件共享**：Docker Desktop → Settings → Resources → File sharing，
+>    勾选项目所在盘符，否则挂载会报 `filesharing has been cancelled` / 路径不存在。
+> 2. **产物属主是 root**：镜像没有 `USER` 指令，容器以 root 运行，写回宿主的产物文件属主会是 root，
+>    Linux / macOS 上用普通用户删改可能提示权限不足，需要 `sudo chown -R $USER .`。
+
 
 ## 使用方式
 
