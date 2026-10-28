@@ -44,6 +44,15 @@ ENV ANDROID_HOME=/opt/android-sdk
 ENV ANDROID_SDK_ROOT=/opt/android-sdk
 ENV PATH=/opt/android-sdk/cmdline-tools/latest/bin:/opt/android-sdk/platform-tools:/opt/ohos-sdk/bin:/opt/ohos-sdk/tool/node/bin:$JAVA_HOME/bin:$NODE_HOME/bin:$FLUTTER_HOME/bin:$PATH
 
+# ---------------------------------------------------------------------------
+# Force HTTP/1.1 + retries for ALL curl calls in the image.
+# GitHub-hosted runners hit nodejs.org / CDN HTTP/2 stream errors
+# (curl: (92) HTTP/2 stream 0 was not closed cleanly: INTERNAL_ERROR) that
+# truncate the download and break `curl | tar`. HTTP/1.1 avoids the framing
+# issue entirely; retries cover other transient hiccups on these large pulls.
+# ---------------------------------------------------------------------------
+RUN printf 'http1.1\nretry = 8\nretry-all-errors\n' > /etc/curlrc
+
 # System dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git curl unzip p7zip-full xz-utils ca-certificates jq file procps \
